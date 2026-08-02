@@ -1,0 +1,43 @@
+[project]
+name = "salmon-price-estimator"
+version = "0.1.0"
+description = "Week-ahead forecast and daily nowcast of the SSB weekly export price of fresh Norwegian farmed salmon."
+readme = "README.md"
+authors = [
+    { name = "TobiasNils1", email = "tobiasln04@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=3.0.5",
+    "pyarrow>=25.0.0",
+    "pyyaml>=6.0.3",
+    "requests>=2.34.2",
+]
+
+[project.scripts]
+salmon-price-estimator = "salmon_price_estimator:main"
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["salmon_price_estimator"]
