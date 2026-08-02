@@ -91,6 +91,18 @@ don't "fix" them by changing project code:
   network commands fail with a cert error in a new shell, `setx
   UV_SYSTEM_CERTS 1` (or check it's still set) before assuming it's a
   real problem.
+- **Same TLS interception breaks Python's `requests` library** (used by
+  the data fetchers) with `SSL: CERTIFICATE_VERIFY_FAILED: unable to
+  get local issuer certificate` — `requests`/`urllib3` use their own
+  bundled `certifi` CA list rather than the Windows trust store, so
+  `UV_SYSTEM_CERTS` doesn't cover it. `curl` was unaffected (it uses
+  Windows' schannel, which already trusts the intercepting cert). Fixed
+  by exporting the Windows Root+CA cert stores to
+  `C:\Users\tobia\.certs\windows-root-ca-bundle.pem` and setting
+  `REQUESTS_CA_BUNDLE` and `SSL_CERT_FILE` to that path, both persisted
+  as user env vars. If a data fetcher hits this error in a new shell,
+  check those two env vars are still set before assuming it's a real
+  problem.
 - **venv location**: the project directory is inside OneDrive. OneDrive
   syncing `.venv` mid-write caused a transient file-lock error during
   setup. Fixed by pointing `.venv` outside the synced tree via

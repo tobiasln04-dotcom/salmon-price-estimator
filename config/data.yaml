@@ -1,0 +1,9 @@
+ssb_export_price:
+  table_id: "03024"
+  api_url: "https://data.ssb.no/api/v0/en/table/03024"
+  commodity_code: "01" # Fish-farm bred salmon, fresh or chilled
+  contents_code: "Kilopris" # Price per kilo (NOK)
+  start_week: null # e.g. "2015U01"; null = full available history
+  end_week: null # null = latest available week
+  raw_path: "data/raw/ssb_export_price_raw.json"
+  processed_path: "data/processed/ssb_weekly_export_price.parquet"
