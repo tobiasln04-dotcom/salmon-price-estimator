@@ -23,9 +23,11 @@ Build an AI price estimator for the Norwegian salmon farming market:
 
 1. **`src/salmon_price_estimator/data/`** — fetch and land raw data as
    tidy parquet in `data/processed/`, one clear schema per source.
-   - Target + weekly features: SSB export price (StatBank), harvest
-     volumes and biomass (Fiskeridirektoratet), sea surface temp anomaly
-     (MET Norway/NOAA), feed cost proxies (IndexMundi fishmeal/fish oil).
+   - Target + weekly features: SSB export price (StatBank) — done. Sea
+     surface temp anomaly (NOAA OISST via ERDDAP) — source chosen, fetcher
+     not yet written. Feed cost proxies (IndexMundi fishmeal/fish oil) —
+     not started. Harvest volumes and biomass (Fiskeridirektoratet)
+     deferred — see "Deferred items" below.
    - Daily nowcast inputs: Fish Pool futures, NOK/USD & NOK/EUR (yfinance),
      Oslo Bors daily returns for MOWI/SALM/LSG/GSF/BAKKA (yfinance).
    - Secondary: NQSALMON weekly history (scraped, Jan 2013-Aug 2024) for
@@ -69,6 +71,46 @@ the current step calls for.
 - Lint/format: `ruff` (config in `pyproject.toml`). Tests: `pytest`,
   under `tests/`, mirroring the `src/` package structure.
 - Commit `uv.lock` for reproducibility.
+
+## Session log
+
+- **2026-08-02**: Scaffolding + SSB weekly export price pipeline done and
+  pushed (see "Reproducing the headline result" section for how to run
+  it). Investigated Fiskeridirektoratet harvest/biomass data — deferred,
+  see "Deferred items" below. Investigated sea surface temperature
+  sources: decided on **NOAA OISST v2.1 via ERDDAP**, no auth required,
+  over MET Norway's Frost/Havvarsel-Frost APIs (which need self-serve but
+  still separate registration) — simpler and one less credential to
+  manage. Verified a live query works:
+  `https://www.ncei.noaa.gov/erddap/griddap/ncdc_oisst_v2_avhrr_by_time_zlev_lat_lon.csv?anom[(2026-07-01):1:(2026-07-10)][(0.0)][(62.625):1:(62.625)][(6.125):1:(6.125)]`
+  — dataset has an `anom` variable that is literally "Daily sea surface
+  temperature anomalies" (Celsius), so no manual anomaly computation
+  needed. Longitude is in 0-360 convention, but Norway's ~5-7°E maps
+  directly (no conversion needed since it's already the eastern
+  hemisphere). Tested point (62.625N, 6.125E, mid-Norway coast) returns
+  real (non-NaN) values, so it's clear of the land mask. **Not yet
+  decided**: single representative coastal point vs. a few points spanning
+  the salmon-farming belt (Rogaland up to Nordland/Troms) averaged
+  together — pick this up next session before writing the fetcher.
+
+## Deferred items
+
+- **Harvest volumes and standing biomass (Fiskeridirektoratet)** — deferred,
+  not MVP. Investigated 2026-08-02: Fiskeridirektoratet's public, no-auth
+  statbank (`statistikkbanken.fiskeridir.no`, PxWebApi at
+  `https://statistikkbanken.fiskeridir.no/PxWeb/api/v1/no/Fiskeridirektoratet`)
+  only publishes harvest/sales and biomass at **annual** granularity (`Tid`
+  variable is `År`, e.g. table `A06002b.px` "Salg av laks... (Fylke)" and
+  `A07002b.px` "Beholdning per 31.12..."). The actual weekly/monthly data
+  lives behind BarentsWatch's Fishhealth/AquaInfo APIs
+  (https://developer.barentswatch.no/docs/fishhealth), which require
+  OAuth2 app registration (client id/secret) — not free/open access.
+  Decision: skip for now, revisit as a v1.1 item once the rest of the
+  pipeline (features, models, backtest) is working end-to-end. **Ask the
+  user for a heads-up/go-ahead at that point** rather than silently adding
+  it — it requires them to register a BarentsWatch account and app, and
+  credentials would need to go in a local `.env` (gitignored) with setup
+  steps documented in the README for reproducibility.
 
 ## Architectural decisions still open
 
