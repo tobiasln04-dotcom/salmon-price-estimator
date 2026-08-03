@@ -7,3 +7,32 @@ ssb_export_price:
   end_week: null # null = latest available week
   raw_path: "data/raw/ssb_export_price_raw.json"
   processed_path: "data/processed/ssb_weekly_export_price.parquet"
+
+sea_surface_temp:
+  # NOAA OISST v2.1 daily anomaly, via NCEI's ERDDAP mirror. This mirror only
+  # keeps a rolling ~6.5 year window (verified 2026-08-03: starts 2020-02-28),
+  # not the full 1981-present archive - see CLAUDE.md "Deferred items".
+  das_url: "https://www.ncei.noaa.gov/erddap/griddap/ncdc_oisst_v2_avhrr_by_time_zlev_lat_lon.das"
+  csv_url: "https://www.ncei.noaa.gov/erddap/griddap/ncdc_oisst_v2_avhrr_by_time_zlev_lat_lon.csv"
+  variable: "anom" # Daily sea surface temperature anomaly (Celsius)
+  # Points spanning the main salmon-farming belt, verified clear of the land
+  # mask (0.25 degree grid). Longitude is 0-360 but Norway's ~5-14E needs no
+  # conversion (already eastern hemisphere).
+  points:
+    - name: "rogaland"
+      lat: 59.125
+      lon: 5.125
+    - name: "vestland"
+      lat: 60.625
+      lon: 4.625
+    - name: "more_og_romsdal"
+      lat: 62.625
+      lon: 6.125
+    - name: "trondelag"
+      lat: 64.625
+      lon: 9.625
+    - name: "nordland"
+      lat: 67.125
+      lon: 13.625
+  raw_dir: "data/raw/sea_surface_temp"
+  processed_path: "data/processed/sea_surface_temp_anomaly_weekly.parquet"

@@ -24,10 +24,10 @@ Build an AI price estimator for the Norwegian salmon farming market:
 1. **`src/salmon_price_estimator/data/`** — fetch and land raw data as
    tidy parquet in `data/processed/`, one clear schema per source.
    - Target + weekly features: SSB export price (StatBank) — done. Sea
-     surface temp anomaly (NOAA OISST via ERDDAP) — source chosen, fetcher
-     not yet written. Feed cost proxies (IndexMundi fishmeal/fish oil) —
-     not started. Harvest volumes and biomass (Fiskeridirektoratet)
-     deferred — see "Deferred items" below.
+     surface temp anomaly (NOAA OISST via ERDDAP) — done, see session log
+     for the ~6.5-year data window caveat. Feed cost proxies (IndexMundi
+     fishmeal/fish oil) — not started. Harvest volumes and biomass
+     (Fiskeridirektoratet) deferred — see "Deferred items" below.
    - Daily nowcast inputs: Fish Pool futures, NOK/USD & NOK/EUR (yfinance),
      Oslo Bors daily returns for MOWI/SALM/LSG/GSF/BAKKA (yfinance).
    - Secondary: NQSALMON weekly history (scraped, Jan 2013-Aug 2024) for
@@ -92,6 +92,28 @@ the current step calls for.
   decided**: single representative coastal point vs. a few points spanning
   the salmon-farming belt (Rogaland up to Nordland/Troms) averaged
   together — pick this up next session before writing the fetcher.
+- **2026-08-03**: Sea surface temperature fetcher done and pushed
+  (`src/salmon_price_estimator/data/sea_surface_temperature.py`). Decided
+  to average 5 points spanning the farming belt (Rogaland, Vestland, Møre
+  og Romsdal, Trøndelag, Nordland — all verified clear of the land mask).
+  Two things discovered while building it, both documented inline in
+  config/code comments:
+  1. **NCEI's ERDDAP mirror only covers ~2020-02-28 to present** (~6.5
+     years), not the full 1981-present OISST archive — that's a rolling
+     window ERDDAP happens to keep, not the full record. The full record
+     lives on NOAA PSL's THREDDS server as yearly netCDF files with no
+     ready-made anomaly variable (would need xarray/netCDF4 + our own
+     climatology baseline) — decided against that added complexity for one
+     feature; SST anomaly is simply unavailable before 2020 in this
+     pipeline. The backtest/model need to tolerate a feature with partial
+     history.
+  2. **A single request spanning the full ~5.5-year range gets rejected by
+     the ERDDAP server itself with an HTTP 408 after ~2 minutes** (verified
+     directly with curl) — this is a server-side processing cap, not a
+     network/timeout-config issue. Fixed by chunking each point's query
+     into one request per calendar year (~15s each) and concatenating.
+  Verified end-to-end: 334 weekly rows (2020-02-24 to 2026-07-13), no
+  nulls, no duplicate weeks.
 
 ## Deferred items
 
