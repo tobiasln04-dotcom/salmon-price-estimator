@@ -36,3 +36,15 @@ sea_surface_temp:
       lon: 13.625
   raw_dir: "data/raw/sea_surface_temp"
   processed_path: "data/processed/sea_surface_temp_anomaly_weekly.parquet"
+
+feed_cost_fishmeal:
+  # IndexMundi has no dedicated CSV/API export (verified 2026-08-03: every
+  # format/type/export query param just returns the same HTML page) - the
+  # price history is embedded as an HTML table (id="gvPrices"), so we parse
+  # that directly. There is no "fish-oil" commodity on IndexMundi at all
+  # (only fish-meal and fish/salmon) - see CLAUDE.md "Deferred items".
+  page_url: "https://www.indexmundi.com/commodities/"
+  commodity: "fish-meal"
+  months: 360 # IndexMundi's server-side max (~30yr); anything higher silently breaks
+  raw_path: "data/raw/indexmundi_fish_meal_raw.html"
+  processed_path: "data/processed/fishmeal_price_monthly.parquet"

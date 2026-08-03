@@ -25,9 +25,9 @@ Build an AI price estimator for the Norwegian salmon farming market:
    tidy parquet in `data/processed/`, one clear schema per source.
    - Target + weekly features: SSB export price (StatBank) — done. Sea
      surface temp anomaly (NOAA OISST via ERDDAP) — done, see session log
-     for the ~6.5-year data window caveat. Feed cost proxies (IndexMundi
-     fishmeal/fish oil) — not started. Harvest volumes and biomass
-     (Fiskeridirektoratet) deferred — see "Deferred items" below.
+     for the ~6.5-year data window caveat. Feed cost proxy: fishmeal price
+     (IndexMundi) — done; fish oil deferred, see "Deferred items" below.
+     Harvest volumes and biomass (Fiskeridirektoratet) also deferred.
    - Daily nowcast inputs: Fish Pool futures, NOK/USD & NOK/EUR (yfinance),
      Oslo Bors daily returns for MOWI/SALM/LSG/GSF/BAKKA (yfinance).
    - Secondary: NQSALMON weekly history (scraped, Jan 2013-Aug 2024) for
@@ -114,9 +114,27 @@ the current step calls for.
      into one request per calendar year (~15s each) and concatenating.
   Verified end-to-end: 334 weekly rows (2020-02-24 to 2026-07-13), no
   nulls, no duplicate weeks.
+  Also built the fishmeal feed-cost proxy
+  (`src/salmon_price_estimator/data/feed_cost_fishmeal.py`). Discovered
+  IndexMundi has no CSV/API export at all (every `type`/`format`/`export`
+  query param just returns the same HTML page) — parsed the embedded
+  `gvPrices` HTML table directly instead. Also discovered IndexMundi
+  doesn't track "fish oil" as a commodity at all (checked the full ~75
+  commodity list; only `fish-meal` and `fish` [salmon] exist) — deferred,
+  see "Deferred items" below. Found the `months` query param has an
+  undocumented server-side cap of 360 (~30yr): anything higher silently
+  returns a broken 3-row response instead of an error. Verified end-to-end:
+  357 monthly rows (1996-07 to 2026-03), no nulls, no duplicates.
 
 ## Deferred items
 
+- **Fish oil feed-cost proxy** — deferred, not MVP. IndexMundi (chosen
+  source for fishmeal) does not track fish oil as a commodity at all —
+  confirmed 2026-08-03 against its full ~75-commodity list. Would need a
+  different source (e.g. a World Bank Pink Sheet historical file, which
+  used to include a Fish oil series) — revisit as a v1.1 item alongside
+  the BarentsWatch harvest/biomass item and the extended (pre-2020) sea
+  surface temperature history.
 - **Harvest volumes and standing biomass (Fiskeridirektoratet)** — deferred,
   not MVP. Investigated 2026-08-02: Fiskeridirektoratet's public, no-auth
   statbank (`statistikkbanken.fiskeridir.no`, PxWebApi at
