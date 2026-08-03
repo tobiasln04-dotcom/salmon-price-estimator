@@ -125,6 +125,18 @@ the current step calls for.
   undocumented server-side cap of 360 (~30yr): anything higher silently
   returns a broken 3-row response instead of an error. Verified end-to-end:
   357 monthly rows (1996-07 to 2026-03), no nulls, no duplicates.
+  All three weekly-feature data sources are now done: SSB target, sea
+  surface temp anomaly, fishmeal. Next up is the SARIMAX weekly baseline
+  model (`src/salmon_price_estimator/models/`) plus the walk-forward
+  backtest harness (`src/salmon_price_estimator/eval/`). **Decision
+  pending, ask the user before starting**: should the SARIMAX baseline be
+  pure univariate (just the SSB price series, full 2000-present backtest
+  range) or SARIMAX-X with fishmeal/sea-temp as exogenous regressors (which
+  would truncate the backtest to 2020+ since sea temp only goes back that
+  far, or require a two-variant approach)? Leaning toward pure univariate
+  per the "baseline" framing in CLAUDE.md's architecture section, with
+  exogenous features saved for the XGBoost stage — but this wasn't decided
+  yet when the session ended, so don't assume it.
 
 ## Deferred items
 
