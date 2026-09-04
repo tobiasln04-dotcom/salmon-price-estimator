@@ -48,3 +48,32 @@ feed_cost_fishmeal:
   months: 360 # IndexMundi's server-side max (~30yr); anything higher silently breaks
   raw_path: "data/raw/indexmundi_fish_meal_raw.html"
   processed_path: "data/processed/fishmeal_price_monthly.parquet"
+
+daily_market_data:
+  # Daily FX + Oslo Bors salmon-stock data for the daily nowcast layer
+  # (CLAUDE.md architecture item 1). Fish Pool/Euronext salmon futures
+  # data was investigated and deferred 2026-09-04 - no free historical
+  # source exists (see CLAUDE.md "Deferred items") - so only FX + stocks
+  # feed the nowcast, not a futures curve.
+  # All 7 series verified via yfinance 2026-09-04; BAKKA.OL has the
+  # shortest history (starts 2010-03-26), which bounds how far back the
+  # nowcast backtest can run.
+  fx_pairs:
+    - ticker: "USDNOK=X"
+      column: "usdnok"
+    - ticker: "EURNOK=X"
+      column: "eurnok"
+  stock_tickers:
+    - ticker: "MOWI.OL"
+      column: "mowi"
+    - ticker: "SALM.OL"
+      column: "salm"
+    - ticker: "LSG.OL"
+      column: "lsg"
+    - ticker: "GSF.OL"
+      column: "gsf"
+    - ticker: "BAKKA.OL"
+      column: "bakka"
+  period: "max" # yfinance history period - fetch full available range
+  raw_dir: "data/raw/daily_market_data"
+  processed_path: "data/processed/daily_market_data.parquet"

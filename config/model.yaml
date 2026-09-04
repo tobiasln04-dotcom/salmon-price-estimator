@@ -1,0 +1,122 @@
+# SARIMAX weekly baseline models. Two variants are backtested side by side
+# (decided 2026-08-31, see CLAUDE.md session log): pure univariate over the
+# full SSB history, and an exogenous variant adding fishmeal price + sea
+# surface temperature anomaly, which naturally truncates to ~2020-present
+# since that's as far back as the sea-temp series goes.
+#
+# order/seasonal_order are fixed, not auto-tuned: this is a *baseline* per
+# CLAUDE.md's architecture framing (order=(1,1,1): one difference for trend,
+# single AR/MA term; seasonal_order=(0,1,1,52): one seasonal difference +
+# seasonal MA term for annual seasonality in a 52-week cycle). Real
+# feature-driven tuning happens at the XGBoost stage, not here.
+
+sarimax_univariate:
+  target_col: "price_nok_per_kg"
+  order: [1, 1, 1]
+  seasonal_order: [0, 1, 1, 52]
+  min_train_weeks: 156 # ~3 years before the first forecast
+  # A full refit's cost grows superlinearly with the training window size
+  # (measured: ~12s at 156 obs, ~20s at 500, ~82s at 1000, ~144s at 1385 -
+  # this is a ~1300-week series by the end). refit_every_n_weeks=8 would put
+  # total backtest runtime over 2 hours; annual refit keeps it to ~25 min
+  # while still tracking parameter drift at a reasonable cadence.
+  refit_every_n_weeks: 52
+  results_path: "data/processed/backtest_univariate.parquet"
+
+sarimax_exogenous:
+  target_col: "price_nok_per_kg"
+  exog_cols: ["sst_anomaly_c", "fishmeal_price_usd_per_tonne"]
+  order: [1, 1, 1]
+  seasonal_order: [0, 1, 1, 52]
+  min_train_weeks: 104 # ~2 years - shorter history available (sea temp starts 2020)
+  refit_every_n_weeks: 8
+  results_path: "data/processed/backtest_exogenous.parquet"
+
+weekly_panel:
+  # Exogenous columns are lagged before joining so the walk-forward backtest
+  # never uses same-week values as a predictor - the week-ahead forecast is
+  # published before that week's sea temp/fishmeal data actually exists.
+  exog_lag_weeks: 1
+  processed_path: "data/processed/weekly_panel.parquet"
+
+backtest:
+  metrics_path: "data/processed/backtest_metrics.csv"
+  weekly_chart_path: "assets/weekly_forecast_vs_actual.png"
+
+# XGBoost weekly stage (decided 2026-09-03, see CLAUDE.md session log):
+# also built as two variants, mirroring the SARIMAX split, specifically to
+# test whether XGBoost's more flexible (non-parametric-seasonal)
+# functional form lets the exogenous features actually help, since the
+# SARIMAX-X result was confounded by a too-short window for its seasonal
+# component rather than being a clean test of the features themselves.
+#
+# The model predicts the 1-week-ahead LOG-RETURN, not the raw price level
+# (see features/weekly_features.py) - a raw-level model trained on a
+# rolling window of a decades-trending series would systematically
+# under/over-predict once prices move outside the training window's range,
+# since tree models cannot extrapolate. Predictions are converted back to
+# price level (price_{t-1} * exp(predicted_return)) before scoring, so
+# they plug into the same eval/metrics.py used for SARIMAX unchanged.
+weekly_features:
+  price_col: "price_nok_per_kg"
+  lags: [1, 2, 3, 4, 52] # 52 = year-ago, gives the model a seasonality signal
+  rolling_windows: [4, 12] # ~1 month, ~1 quarter
+
+xgboost_autoregressive:
+  # Pure autoregressive/seasonality features, full SSB history available.
+  exog_cols: []
+  train_window_weeks: 208 # ~4 years rolling window (not expanding, per CLAUDE.md)
+  num_boost_round: 300
+  params:
+    max_depth: 3 # shallow trees - few hundred training rows, avoid overfitting
+    eta: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    objective: "reg:squarederror"
+  results_path: "data/processed/backtest_xgboost_autoregressive.parquet"
+
+xgboost_exogenous:
+  # Same as above, plus the (already 1-week-lagged) fishmeal/sea-temp
+  # columns from weekly_panel.py - naturally truncates to ~2020-present.
+  # Shorter train_window_weeks than the autoregressive variant: the
+  # exogenous panel only has ~330 rows total, and 52 of those are consumed
+  # by the year-ago lag's warm-up - a 208-week window would leave only
+  # ~70 weeks for evaluation. 104 weeks (~2 years) leaves a much more
+  # usable ~180-week eval window while still giving the model a
+  # reasonable amount of training data per refit.
+  exog_cols: ["sst_anomaly_c", "fishmeal_price_usd_per_tonne"]
+  train_window_weeks: 104
+  num_boost_round: 300
+  params:
+    max_depth: 3
+    eta: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    objective: "reg:squarederror"
+  results_path: "data/processed/backtest_xgboost_exogenous.parquet"
+
+# Daily nowcast layer (built 2026-09-04, see CLAUDE.md session log).
+# Anchored on the univariate SARIMAX forecast (the one weekly baseline
+# that actually beats naive - see backtest_univariate.parquet), since it's
+# the best weekly baseline to correct, not necessarily the fanciest one.
+# The nowcast model predicts a LOG-RATIO CORRECTION on top of that
+# forecast (log(actual / baseline_pred)), not the raw price level - see
+# features/daily_nowcast_features.py. Fish Pool/Euronext futures data was
+# investigated and deferred (no free historical source, see CLAUDE.md
+# "Deferred items") - only FX + Oslo Bors stock returns feed this.
+nowcast:
+  stock_columns: ["mowi", "salm", "lsg", "gsf", "bakka"]
+  # Retrains once per completed week, not 4x/week - see
+  # eval/backtest_nowcast.py docstring for why that's not a shortcut, it's
+  # provably identical to retraining daily (the training set of *completed*
+  # weeks doesn't change within a week).
+  train_window_weeks: 104 # ~2 years
+  num_boost_round: 200
+  params:
+    max_depth: 3
+    eta: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    objective: "reg:squarederror"
+  results_path: "data/processed/backtest_nowcast.parquet"
+  chart_path: "assets/nowcast_rmse_by_day.png"
