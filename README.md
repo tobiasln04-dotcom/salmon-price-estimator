@@ -224,3 +224,11 @@ uv sync
 uv run python -m pytest
 uv run ruff check .
 ```
+
+A `Dockerfile` is also provided (`docker build -t salmon-price-estimator .`
+then `docker run salmon-price-estimator`, which runs
+`scripts/run_backtest.py`) — **not build-tested**, since Docker isn't
+available in this project's development environment. It's driven by
+`uv.lock` so it should pick up all dependencies automatically, and
+includes `libgomp1` for xgboost's OpenMP dependency, but treat it as
+best-effort until someone actually runs it.

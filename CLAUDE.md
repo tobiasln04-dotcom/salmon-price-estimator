@@ -418,16 +418,55 @@ the current step calls for.
   and whatever the user wants to prioritize next (e.g. MIDAS v2, revisiting
   a deferred source, or considering the project done as an honest,
   rigorously-tested negative result).
+- **2026-09-04 (wrap-up)**: Added a weekly headline chart (actual vs.
+  one-step-ahead SARIMAX forecast, full history) to the README and
+  committed the entire build (SARIMAX, XGBoost, nowcast - commit
+  `ee3b311`). Then worked through the remaining items this file flags as
+  needing attention before considering the project done, per its own
+  "ask before locking in" / "ask for a heads-up" instructions rather than
+  assuming:
+  - **Fish oil feed-cost proxy**: followed up on the "World Bank Pink
+    Sheet used to include a Fish oil series" lead - it doesn't (checked
+    both the monthly and annual historical files directly, free/no-auth
+    at `thedocs.worldbank.org`), and neither does FAO GLOBEFISH (narrative
+    only, no data). Three sources checked now (IndexMundi, World Bank,
+    FAO), none have it - see updated "Deferred items" entry. Not worth a
+    fourth attempt without a specific new lead.
+  - **Harvest/biomass (BarentsWatch)**: asked the user per this file's own
+    instruction (pipeline is now fully working end-to-end, the condition
+    for asking). Decision: skip it, don't register for BarentsWatch -
+    settled, not just still-open.
+  - **Dockerfile**: noticed it was orphaned scaffolding from the very
+    first commit (`59c1649`) - never referenced in the README, never
+    updated since statsmodels/xgboost/yfinance/matplotlib were added.
+    Added `libgomp1` (xgboost's OpenMP dependency, commonly missing on
+    Debian-slim images) and a README mention. **Not build-tested** -
+    Docker isn't installed on this machine - flagged as best-effort in
+    the README rather than silently presented as verified.
+  With those resolved, the project is now complete relative to
+  everything CLAUDE.md specifies as MVP or as requiring a decision.
+  Anything further (MIDAS v2, a config framework, revisiting a deferred
+  source) needs the user to actively propose it, not a future session
+  assuming there's more to do.
 
 ## Deferred items
 
-- **Fish oil feed-cost proxy** — deferred, not MVP. IndexMundi (chosen
-  source for fishmeal) does not track fish oil as a commodity at all —
-  confirmed 2026-08-03 against its full ~75-commodity list. Would need a
-  different source (e.g. a World Bank Pink Sheet historical file, which
-  used to include a Fish oil series) — revisit as a v1.1 item alongside
-  the BarentsWatch harvest/biomass item and the extended (pre-2020) sea
-  surface temperature history.
+- **Fish oil feed-cost proxy** — deferred, not MVP, and now fully checked
+  rather than just IndexMundi. IndexMundi (chosen source for fishmeal)
+  does not track fish oil at all — confirmed 2026-08-03 against its full
+  ~75-commodity list. Followed up 2026-09-04 on the "World Bank Pink
+  Sheet used to include a Fish oil series" lead from that session: it
+  doesn't - downloaded and inspected both `CMO-Historical-Data-Monthly.xlsx`
+  and `CMO-Historical-Data-Annual.xlsx` directly from
+  `thedocs.worldbank.org` (both free, no auth) and neither has a Fish oil
+  column, only "Fish meal" (confirmed via the header row and the
+  Description sheet's source notes). Also checked FAO GLOBEFISH's
+  fishmeal/fish oil page - narrative market commentary only, no
+  downloadable series or API. No free, structured fish oil price source
+  was found across three attempts - if this is revisited, it likely needs
+  a paid source (e.g. Tridge, aquafeed.com price reports) rather than
+  more free-source searching alongside the BarentsWatch harvest/biomass
+  item and the extended (pre-2020) sea surface temperature history.
 - **Harvest volumes and standing biomass (Fiskeridirektoratet)** — deferred,
   not MVP. Investigated 2026-08-02: Fiskeridirektoratet's public, no-auth
   statbank (`statistikkbanken.fiskeridir.no`, PxWebApi at
@@ -444,6 +483,11 @@ the current step calls for.
   it — it requires them to register a BarentsWatch account and app, and
   credentials would need to go in a local `.env` (gitignored) with setup
   steps documented in the README for reproducibility.
+  **Asked 2026-09-04** (pipeline now fully working end-to-end, per the
+  condition above): user chose to skip it and consider the project
+  complete as-is, rather than register for BarentsWatch. Don't re-raise
+  this without a reason to revisit - it's a settled decision, not just an
+  still-open question.
 - **Fish Pool / Euronext salmon futures (curve slope, daily nowcast
   input)** — deferred, not MVP. Investigated 2026-09-04: Fish Pool itself
   (fishpool.eu) is now just an informational front for Euronext, which
