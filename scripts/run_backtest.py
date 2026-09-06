@@ -58,6 +58,10 @@ from salmon_price_estimator.eval.prediction_intervals import (
 )
 from salmon_price_estimator.eval.random_walk_test import adf_test, ljung_box_test
 from salmon_price_estimator.eval.significance import diebold_mariano_test
+from salmon_price_estimator.eval.trading_strategy import (
+    compute_strategy_metrics,
+    simple_directional_strategy,
+)
 from salmon_price_estimator.features import weekly_panel
 from salmon_price_estimator.features.daily_nowcast_features import (
     FEATURE_COLUMNS as NOWCAST_FEATURE_COLUMNS,
@@ -133,6 +137,13 @@ def significance_row(variant: str, df: pd.DataFrame, pred_col: str, naive_col: s
         "p_value": p_value,
         "significant_at_5pct": bool(p_value < 0.05) if not np.isnan(p_value) else False,
     }
+
+
+def strategy_row(variant: str, df: pd.DataFrame, pred_col: str) -> dict:
+    """Notional long/short directional-strategy P&L for one variant - see
+    eval/trading_strategy.py."""
+    strategy_df = simple_directional_strategy(df, pred_col)
+    return {"variant": variant} | compute_strategy_metrics(strategy_df)
 
 
 def random_walk_summary(price: pd.Series) -> pd.DataFrame:
@@ -399,6 +410,22 @@ def main() -> None:
     )
     print()
     print(significance.to_string(index=False))
+
+    # --- Economic value: does directional accuracy translate into P&L? ---
+    trading_strategy = pd.DataFrame(
+        [
+            strategy_row("sarimax_univariate", univariate_results, "sarimax_pred"),
+            strategy_row("sarimax_exogenous", exogenous_results, "sarimax_pred"),
+            strategy_row("xgboost_autoregressive", xgb_auto_results, "xgboost_pred"),
+            strategy_row("xgboost_exogenous", xgb_exo_results, "xgboost_pred"),
+            strategy_row("ensemble_sarimax_xgboost", ensemble_results, "ensemble_pred"),
+        ]
+    )
+    print()
+    print(trading_strategy.to_string(index=False))
+    trading_strategy_path = REPO_ROOT / model_config["backtest"]["trading_strategy_path"]
+    trading_strategy_path.parent.mkdir(parents=True, exist_ok=True)
+    trading_strategy.to_csv(trading_strategy_path, index=False)
 
     univariate_dates = univariate_results[["week_id"]].merge(
         ssb[["week_id", "week_start_date"]], on="week_id", how="left"

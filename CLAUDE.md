@@ -635,6 +635,69 @@ the current step calls for.
   forecasts, not just how accurate?" section (between the exogenous/
   XGBoost discussion and "Is this actually a random walk?"), with the fan
   chart embedded.
+- **2026-09-06 (economic value)**: Added the last item from that
+  session's pitch list - does the directional edge translate into
+  actual P&L, not just a statistical metric? Built
+  `eval/trading_strategy.py`: `simple_directional_strategy` (a notional
+  long/short position each week, sign of the forecast's implied
+  direction, reusing the already-computed `naive_pred` column as "last
+  known price" - no new backtest machinery needed, purely post-hoc on
+  existing cached results) and `newey_west_mean_test` (HAC/Bartlett-
+  kernel-adjusted one-sample t-test, since this project's own Ljung-Box
+  result already showed weekly returns are autocorrelated, so a naive
+  t-test would understate uncertainty).
+  **Hit an important self-caught mistake before writing anything down**:
+  the first pass reported a "cumulative return" by exponentiating the
+  sum of ~20+ years of independently-signed weekly log-returns -
+  produced absurd numbers (340,881x for `sarimax_univariate`, i.e.
+  34-million-percent). This is a well-known naive-backtest artifact, not
+  a real result: exponentiating a long sum of flipping-sign log-returns
+  implicitly assumes fully reinvesting the entire notional every single
+  week with no capital constraints for two decades. **Removed
+  `strategy_cumulative_return` from `compute_strategy_metrics` entirely**
+  rather than caveat it - a number that misleading has no business being
+  in the reported output even with a footnote. Buy-and-hold's cumulative
+  return has no such problem (position never flips, so the log-returns
+  telescope to a real total price return) and was kept.
+  **Result** (`data/processed/trading_strategy.csv`, all 5 weekly
+  variants + naive-anchored hit rate cross-checked against the
+  already-reported directional accuracy numbers - matches exactly, a
+  good sanity check the position logic is right):
+
+  | variant | hit rate | strategy ann. return | Sharpe | Newey-West p-value | buy&hold ann. return |
+  |---|---|---|---|---|---|
+  | sarimax_univariate | 58.9% | 53.9% | 1.65 | 1.0e-15 | 4.7% |
+  | sarimax_exogenous | 54.3% | 46.7% | 1.17 | 0.0036 | -4.7% |
+  | xgboost_autoregressive | 54.8% | 34.3% | 1.00 | 2.6e-6 | 5.1% |
+  | xgboost_exogenous | 55.1% | 54.5% | 1.36 | 0.052 (borderline) | -13.3% |
+  | ensemble_sarimax_xgboost | 57.5% | 52.0% | 1.53 | 2.1e-13 | 5.1% |
+
+  **All five variants show a statistically significant (or borderline)
+  positive mean strategy return - including both XGBoost variants, whose
+  point forecasts were NOT significantly different from naive in the
+  earlier Diebold-Mariano test.** Not a contradiction: MSE-based accuracy
+  and directional P&L are different questions, and a hit rate of ~55%,
+  weighted by move size over hundreds of weeks, is enough for a HAC test
+  to detect as real even though it doesn't win on average squared error.
+  **Don't over-read this as "the models are secretly great after all"**
+  - this is a re-expression, in P&L units, of directional accuracy
+  numbers already known and reported, not an independent new skill
+  discovery; large N makes a modest known edge easy to detect as
+  "statistically real." The more economically interesting fact: buy-
+  and-hold was NEGATIVE over the shorter/more recent exogenous-variant
+  windows (-4.7%, -13.3% annualized - 2022+ has been a genuinely bad
+  stretch to just hold exposure), while the directional strategies
+  (long AND short, unlike a passive holder) posted significant positive
+  returns over those same stretches.
+  Config addition: `backtest.trading_strategy_path` in
+  `config/model.yaml`. Verification: full pytest suite (92 tests)
+  passes, `ruff check .` clean (including a test that specifically
+  asserts `strategy_cumulative_return` is NOT in the output, so a future
+  session doesn't accidentally reintroduce it). README updated: new
+  "Does the directional edge translate into economic value?" section
+  (between "How reliable are these forecasts" and "Is this actually a
+  random walk?"), heavily caveated as a notional/paper exercise, not a
+  claim of real tradability.
 
 ## Deferred items
 

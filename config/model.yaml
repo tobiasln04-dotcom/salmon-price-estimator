@@ -52,6 +52,10 @@ backtest:
   # Simple average of sarimax_univariate + xgboost_autoregressive - see
   # eval/ensemble.py.
   ensemble_results_path: "data/processed/backtest_ensemble.parquet"
+  # Notional long/short directional-strategy P&L per variant - does
+  # directional accuracy translate into economic value? See
+  # eval/trading_strategy.py.
+  trading_strategy_path: "data/processed/trading_strategy.csv"
 
 # Prediction intervals (2026-09-06, see CLAUDE.md session log): SARIMAX
 # gets a native model-based interval (statsmodels' conf_int, via

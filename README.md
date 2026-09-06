@@ -237,6 +237,58 @@ for an actual decision (e.g. sizing a hedge), the empirical-interval
 approach would be the safer one to trust, precisely because it can't
 silently fail the way the parametric one did here.
 
+## Does the directional edge translate into economic value?
+
+Every result so far has been a statistical metric (MAPE, RMSE,
+Diebold-Mariano p-values). None of them directly answer the more
+practical question a trading or hedging desk would actually ask: **if
+you'd acted on this model's calls, would it have made money?**
+
+A simple notional long/short strategy (`eval/trading_strategy.py`): go
+long for the week if the model predicted a rise, short if it predicted a
+fall, and realize that week's actual return with that sign. This is a
+**paper exercise, not a claim about a real tradable strategy** — the SSB
+export price is a statistical index, not a security, and this ignores
+transaction costs and any capital/margin constraints entirely. What it
+*does* cleanly test is whether the directional edge already reported as
+"directional accuracy" is worth anything once you weight it by the size
+of the moves, and whether that's statistically distinguishable from
+chance (a Newey-West HAC test on the strategy's mean weekly return,
+since — per the random-walk section below — these returns are
+autocorrelated, so a naive t-test would understate the uncertainty).
+
+| Variant | Hit rate | Strategy ann. return | Strategy Sharpe | Significant? (Newey-West) | Buy & hold ann. return (same window) |
+|---|---|---|---|---|---|
+| SARIMAX univariate | 58.9% | 53.9% | 1.65 | **yes** (p = 1.0×10⁻¹⁵) | 4.7% |
+| SARIMAX exogenous | 54.3% | 46.7% | 1.17 | **yes** (p = 0.0036) | -4.7% |
+| XGBoost autoregressive | 54.8% | 34.3% | 1.00 | **yes** (p = 2.6×10⁻⁶) | 5.1% |
+| XGBoost exogenous | 55.1% | 54.5% | 1.36 | borderline (p = 0.052) | -13.3% |
+| Ensemble | 57.5% | 52.0% | 1.53 | **yes** (p = 2.1×10⁻¹³) | 5.1% |
+
+The genuinely interesting wrinkle: **every variant shows a statistically
+significant (or borderline) positive average strategy return — including
+the two XGBoost variants whose point forecasts were *not* significantly
+different from naive.** That's not a contradiction of the earlier
+Diebold-Mariano results, it's a different question getting a different
+answer: beating naive on *average squared error* and having a
+*directionally profitable signal* aren't the same test, and a model can
+fail the first while passing the second. A hit rate of ~55% sounds
+unimpressive, but weighted by the size of each week's move and measured
+over hundreds of weeks, it's enough for the Newey-West test to detect —
+which also means: don't over-read this as "the models are secretly great
+after all." A large sample size makes even a modest, already-known
+directional edge easy to detect as "statistically real" — this table
+quantifies that edge in P&L terms, it doesn't uncover a new one.
+
+Worth noting in the same breath: buy-and-hold's return over the
+shorter, more recent, exogenous-variant windows was **negative**
+(-4.7%, -13.3% annualized) — 2022+ has been a genuinely rough stretch
+for just holding exposure to this series. A directional strategy with
+even a modest edge and the ability to go short, not just long, avoided
+that entirely and posted a significant positive return over the same
+stretch. That's arguably the most economically relevant single fact in
+this section.
+
 ## Is this actually a random walk?
 
 "Behaves close to a random walk" has been stated qualitatively so far —
@@ -355,8 +407,9 @@ nowcast backtest, writes `data/processed/backtest_*.parquet`,
 `data/processed/backtest_metrics.csv`, `data/processed/significance_tests.csv`
 (the Diebold-Mariano results above), `data/processed/random_walk_tests.csv`
 (the ADF/Ljung-Box results), `data/processed/interval_coverage.csv` (the
-calibration table above), and regenerates all three chart images under
-`assets/`. **A fresh run takes roughly 40 minutes** — SARIMAX refit cost
+calibration table above), `data/processed/trading_strategy.csv` (the
+economic-value table above), and regenerates all three chart images
+under `assets/`. **A fresh run takes roughly 40 minutes** — SARIMAX refit cost
 scales superlinearly with training window size on this ~1,300-week
 series (see `config/model.yaml` and `eval/backtest.py` for the measured
 numbers and the runtime tradeoffs that shaped the default config);
