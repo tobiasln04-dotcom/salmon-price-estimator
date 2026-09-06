@@ -46,6 +46,12 @@ backtest:
   # variant's point-estimate edge over naive actually statistically
   # significant, or could it be noise? See eval/significance.py.
   significance_path: "data/processed/significance_tests.csv"
+  # Formal tests of the "close to a random walk" claim used throughout the
+  # README - see eval/random_walk_test.py.
+  random_walk_test_path: "data/processed/random_walk_tests.csv"
+  # Simple average of sarimax_univariate + xgboost_autoregressive - see
+  # eval/ensemble.py.
+  ensemble_results_path: "data/processed/backtest_ensemble.parquet"
 
 # XGBoost weekly stage (decided 2026-09-03, see CLAUDE.md session log):
 # also built as two variants, mirroring the SARIMAX split, specifically to

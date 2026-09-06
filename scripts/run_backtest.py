@@ -51,6 +51,8 @@ from salmon_price_estimator.eval import metrics
 from salmon_price_estimator.eval.backtest import walk_forward_backtest
 from salmon_price_estimator.eval.backtest_nowcast import walk_forward_nowcast_backtest
 from salmon_price_estimator.eval.backtest_xgboost import rolling_window_backtest
+from salmon_price_estimator.eval.ensemble import build_ensemble_predictions
+from salmon_price_estimator.eval.random_walk_test import adf_test, ljung_box_test
 from salmon_price_estimator.eval.significance import diebold_mariano_test
 from salmon_price_estimator.features import weekly_panel
 from salmon_price_estimator.features.daily_nowcast_features import (
@@ -127,6 +129,39 @@ def significance_row(variant: str, df: pd.DataFrame, pred_col: str, naive_col: s
         "p_value": p_value,
         "significant_at_5pct": bool(p_value < 0.05) if not np.isnan(p_value) else False,
     }
+
+
+def random_walk_summary(price: pd.Series) -> pd.DataFrame:
+    """Combine the ADF and Ljung-Box tests into one printable/saveable table."""
+    adf = adf_test(price)
+    rows = [
+        {
+            "test": adf["test"],
+            "statistic": adf["statistic"],
+            "p_value": adf["p_value"],
+            "rejected_at_5pct": adf["unit_root_rejected_at_5pct"],
+            "interpretation": (
+                "unit root rejected (NOT consistent with a random walk)"
+                if adf["unit_root_rejected_at_5pct"]
+                else "unit root not rejected (consistent with a random walk)"
+            ),
+        }
+    ]
+    for _, lb_row in ljung_box_test(price, lags=[1, 4, 12, 52]).iterrows():
+        rows.append(
+            {
+                "test": f"Ljung-Box (weekly returns, lag {int(lb_row['lag'])})",
+                "statistic": lb_row["lb_stat"],
+                "p_value": lb_row["lb_pvalue"],
+                "rejected_at_5pct": bool(lb_row["autocorrelation_rejected_at_5pct"]),
+                "interpretation": (
+                    "significant autocorrelation (NOT consistent with a random walk)"
+                    if lb_row["autocorrelation_rejected_at_5pct"]
+                    else "no significant autocorrelation (consistent with a random walk)"
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def run_xgboost_variant(df: pd.DataFrame, feat_cfg: dict, xgb_cfg: dict) -> pd.DataFrame:
@@ -231,6 +266,13 @@ def main() -> None:
     ssb = pd.read_parquet(REPO_ROOT / data_config["ssb_export_price"]["processed_path"])
     panel = weekly_panel.run(data_config, model_config)
 
+    rw_summary = random_walk_summary(ssb["price_nok_per_kg"])
+    print(rw_summary.to_string(index=False))
+    rw_path = REPO_ROOT / model_config["backtest"]["random_walk_test_path"]
+    rw_path.parent.mkdir(parents=True, exist_ok=True)
+    rw_summary.to_csv(rw_path, index=False)
+    print()
+
     uni_cfg = model_config["sarimax_univariate"]
     univariate_results = compute_or_load(
         REPO_ROOT / uni_cfg["results_path"],
@@ -273,12 +315,21 @@ def main() -> None:
         lambda: run_xgboost_variant(panel, feat_cfg, xgb_exo_cfg),
     )
 
+    # --- Ensemble: simple average of sarimax_univariate + xgboost_autoregressive ---
+    ensemble_results = build_ensemble_predictions(
+        univariate_results, "sarimax_pred", xgb_auto_results, "xgboost_pred"
+    )
+    ensemble_path = REPO_ROOT / model_config["backtest"]["ensemble_results_path"]
+    ensemble_path.parent.mkdir(parents=True, exist_ok=True)
+    ensemble_results.to_parquet(ensemble_path, index=False)
+
     summary = pd.DataFrame(
         [
             summarize("sarimax_univariate", univariate_results, "sarimax_pred"),
             summarize("sarimax_exogenous", exogenous_results, "sarimax_pred"),
             summarize("xgboost_autoregressive", xgb_auto_results, "xgboost_pred"),
             summarize("xgboost_exogenous", xgb_exo_results, "xgboost_pred"),
+            summarize("ensemble_sarimax_xgboost", ensemble_results, "ensemble_pred"),
         ]
     )
     metrics_path = REPO_ROOT / model_config["backtest"]["metrics_path"]
@@ -298,6 +349,12 @@ def main() -> None:
                 "xgboost_autoregressive", xgb_auto_results, "xgboost_pred", "naive_pred"
             ),
             significance_row("xgboost_exogenous", xgb_exo_results, "xgboost_pred", "naive_pred"),
+            significance_row(
+                "ensemble_sarimax_xgboost_vs_naive", ensemble_results, "ensemble_pred", "naive_pred"
+            ),
+            significance_row(
+                "ensemble_vs_sarimax_alone", ensemble_results, "ensemble_pred", "sarimax_pred"
+            ),
         ]
     )
     print()

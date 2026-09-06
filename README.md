@@ -111,9 +111,25 @@ the last value).
 
 This is a genuinely useful negative result, not a disappointing one: it
 shows the naive "last observed value" benchmark is a legitimately hard
-target on this series (consistent with a weekly export price behaving
-close to a random walk), and that model sophistication doesn't
+target on this series (see "Is this actually a random walk?" below for
+what that claim precisely means), and that model sophistication doesn't
 automatically buy accuracy here.
+
+**One more check, since it's cheap now that both backtests exist: does
+averaging SARIMAX's and XGBoost's predictions help?** Not clearly.
+
+| Variant | Weeks | MAPE | RMSE | Directional accuracy | vs. naive (DM) | vs. SARIMAX alone (DM) |
+|---|---|---|---|---|---|---|
+| Ensemble (SARIMAX + XGBoost avg) | 1,126 | 3.66% (naive: 3.75%) | 2.92 (naive: 3.04) | 57.5% (naive: 0.4%) | not significant (p = 0.060) | not significant (p = 0.733) |
+
+The ensemble's p-value against naive (0.060) is the closest of any
+non-SARIMAX-univariate variant to conventional significance — closer
+than either XGBoost variant alone — but it doesn't clear the 5%
+threshold, and more importantly it's statistically indistinguishable
+from just using SARIMAX by itself. No evidence here that blending in
+XGBoost buys anything over the simpler choice; the classic "forecast
+combination" bet (a weak model can still reduce a strong one's variance
+when averaged in) doesn't pay off on this series.
 
 ## Why the exogenous features and XGBoost didn't help — and what that does and doesn't mean
 
@@ -155,6 +171,39 @@ a significant loss into statistical noise, even if not into a win), and
 neither approach clears naive on this particular series." The honest
 headline model remains the univariate SARIMAX.
 
+## Is this actually a random walk?
+
+"Behaves close to a random walk" has been stated qualitatively so far —
+worth testing formally rather than leaving it as a hand-wave
+(`eval/random_walk_test.py`), and the answer turned out more precise
+than the informal version, not just confirmed:
+
+| Test | Statistic | p-value | Conclusion |
+|---|---|---|---|
+| ADF (log price level) | -1.58 | 0.49 | Unit root **not rejected** — consistent with a non-stationary, trending price level |
+| Ljung-Box, weekly returns (lags 1/4/12/52) | 40–250 | all < 10⁻⁹ | **Rejects** "no autocorrelation" at every lag |
+
+Put together, this is **not a pure random walk** — a true random walk's
+week-to-week changes would be unpredictable, and the Ljung-Box test would
+fail to reject at every lag. It doesn't. Weekly returns have real,
+statistically detectable autocorrelation. The price level *is*
+non-stationary (the ADF result, the necessary-but-not-sufficient half of
+"random walk"), but its changes aren't pure noise.
+
+That combination — non-stationary *and* weakly autocorrelated — is, not
+coincidentally, exactly what SARIMAX(1,1,1)×(0,1,1,52) is built to
+capture: the AR/MA terms exist specifically to model autocorrelation in
+the differenced series. **That's why SARIMAX can extract a statistically
+significant edge over naive at all** (the Diebold-Mariano result above).
+But the edge is still small (3.54% vs. 3.59% MAPE) — telling you the
+autocorrelation, while real, is thin. "Close to a random walk" was the
+right intuition; "non-stationary with weak but real autocorrelation" is
+the more precise description these two tests actually support, and it's
+a better explanation for the whole project's pattern than "random walk"
+alone would be: there's a real, exploitable signal (hence SARIMAX's
+significant win), it's just too thin for more data or more model
+flexibility to meaningfully improve on.
+
 ## Daily nowcast result
 
 ![Nowcast RMSE by day of week](assets/nowcast_rmse_by_day.png)
@@ -186,11 +235,12 @@ exogenous features.
 **Taken together with the weekly results above, this project's honest
 finding is a coherent one, not three unrelated disappointments**: the
 naive last-observed-value benchmark is a genuinely tough target on this
-series, consistent with a weekly export price that behaves close to a
-random walk, and every attempt to beat it with more data or more model
-flexibility (exogenous features, XGBoost, daily nowcasting) came up
-short against it. The univariate SARIMAX remains the one model in this
-project that clears the bar.
+series (non-stationary with only weak, thin autocorrelation — see "Is
+this actually a random walk?" above), and every attempt to beat it with
+more data or more model flexibility (exogenous features, XGBoost, daily
+nowcasting, even a simple SARIMAX+XGBoost ensemble) came up short against
+it. The univariate SARIMAX remains the one model in this project that
+clears the bar.
 
 ## Side analysis: which salmon stock tracks the salmon price?
 
@@ -234,11 +284,12 @@ uv run python scripts/run_backtest.py
 
 This fetches all data sources if they're not already cached locally,
 builds the joined weekly panel/features, runs all four weekly backtest
-variants plus the daily nowcast backtest, writes
+variants plus the ensemble and the daily nowcast backtest, writes
 `data/processed/backtest_*.parquet`, `data/processed/backtest_metrics.csv`,
-and `data/processed/significance_tests.csv` (the Diebold-Mariano results
-above), and regenerates both chart images under `assets/`. **A fresh run takes
-roughly 40 minutes** — SARIMAX refit cost scales superlinearly with
+`data/processed/significance_tests.csv` (the Diebold-Mariano results
+above), and `data/processed/random_walk_tests.csv` (the ADF/Ljung-Box
+results above), and regenerates both chart images under `assets/`.
+**A fresh run takes roughly 40 minutes** — SARIMAX refit cost scales superlinearly with
 training window size on this ~1,300-week series (see `config/model.yaml`
 and `eval/backtest.py` for the measured numbers and the runtime
 tradeoffs that shaped the default config); XGBoost and the nowcast layer

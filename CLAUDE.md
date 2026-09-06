@@ -523,6 +523,43 @@ the current step calls for.
   discussion, and the nowcast section) to reflect the more precise
   significant/worse vs. not-significant distinction rather than treating
   every non-win as equivalent.
+- **2026-09-06 (continued)**: Two more additions, both extending the
+  significance-testing theme from the same session. Built
+  `eval/random_walk_test.py` (ADF test on log price level + Ljung-Box on
+  weekly log-returns at lags 1/4/12/52) to formally test the "close to a
+  random walk" claim the README had been asserting qualitatively since
+  the SARIMAX stage. **This didn't just confirm the claim - it corrected
+  it**: ADF fails to reject a unit root (p=0.49, consistent with a
+  non-stationary price level), but Ljung-Box **rejects "no
+  autocorrelation" overwhelmingly at every lag** (p < 1e-9 throughout) -
+  weekly returns are *not* white noise, so this is **not a pure random
+  walk**. Re-read as "non-stationary with weak but real autocorrelation,"
+  this actually explains the whole project better than "random walk"
+  did: the real autocorrelation is exactly what SARIMAX(1,1,1)x(0,1,1,52)
+  is built to extract (hence its significant win over naive), and the
+  fact that the edge is still small tells you the autocorrelation, while
+  real, is thin. **Don't let a future session revert the README's
+  language back to a bare "random walk" claim** - the more precise
+  framing ("non-stationary, weakly autocorrelated") is what the tests
+  actually support and is a better explanation for the project's overall
+  pattern.
+  Also built `eval/ensemble.py` (simple average of `sarimax_univariate` +
+  `xgboost_autoregressive`, inner-joined on `week_id` since they cover
+  different windows) and tested it the same rigorous way. Result: MAPE
+  3.66% (naive 3.75%), and DM tests show **no significant difference vs.
+  naive** (p=0.060 - closest of any non-SARIMAX-univariate variant to
+  conventional significance, but doesn't clear it) **and no significant
+  difference vs. SARIMAX alone** (p=0.733). Conclusion: blending in
+  XGBoost neither helps nor hurts significantly - no evidence to prefer
+  the ensemble over plain SARIMAX, so simplicity wins by default.
+  Config additions in `config/model.yaml`'s `backtest:` block:
+  `random_walk_test_path`, `ensemble_results_path`. Verification: full
+  pytest suite (74 tests) passes, `ruff check .` clean. README updated:
+  new "Is this actually a random walk?" section (between the exogenous/
+  XGBoost discussion and the nowcast section), an ensemble row/paragraph
+  added to "Headline result", and every remaining "random walk" mention
+  elsewhere in the README repointed to the new section instead of
+  restating the claim loosely.
 
 ## Deferred items
 
