@@ -35,6 +35,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -50,6 +51,7 @@ from salmon_price_estimator.eval import metrics
 from salmon_price_estimator.eval.backtest import walk_forward_backtest
 from salmon_price_estimator.eval.backtest_nowcast import walk_forward_nowcast_backtest
 from salmon_price_estimator.eval.backtest_xgboost import rolling_window_backtest
+from salmon_price_estimator.eval.significance import diebold_mariano_test
 from salmon_price_estimator.features import weekly_panel
 from salmon_price_estimator.features.daily_nowcast_features import (
     FEATURE_COLUMNS as NOWCAST_FEATURE_COLUMNS,
@@ -108,6 +110,22 @@ def summarize(variant: str, df: pd.DataFrame, pred_col: str) -> dict:
         "naive_directional_accuracy": metrics.directional_accuracy(
             df["actual"], df["naive_pred"], df["naive_pred"]
         ),
+    }
+
+
+def significance_row(variant: str, df: pd.DataFrame, pred_col: str, naive_col: str) -> dict:
+    """Is `pred_col`'s edge over `naive_col` statistically significant, or
+    could the point-estimate improvement be noise? Diebold-Mariano test,
+    squared-error loss (matches RMSE), h=1 (all forecasts here are one-step-
+    ahead)."""
+    errors_model = (df["actual"] - df[pred_col]).to_numpy()
+    errors_naive = (df["actual"] - df[naive_col]).to_numpy()
+    dm_stat, p_value = diebold_mariano_test(errors_model, errors_naive, h=1)
+    return {
+        "variant": variant,
+        "dm_statistic": dm_stat,
+        "p_value": p_value,
+        "significant_at_5pct": bool(p_value < 0.05) if not np.isnan(p_value) else False,
     }
 
 
@@ -270,6 +288,21 @@ def main() -> None:
     pd.set_option("display.width", 120)
     print(summary.to_string(index=False))
 
+    significance = pd.DataFrame(
+        [
+            significance_row(
+                "sarimax_univariate", univariate_results, "sarimax_pred", "naive_pred"
+            ),
+            significance_row("sarimax_exogenous", exogenous_results, "sarimax_pred", "naive_pred"),
+            significance_row(
+                "xgboost_autoregressive", xgb_auto_results, "xgboost_pred", "naive_pred"
+            ),
+            significance_row("xgboost_exogenous", xgb_exo_results, "xgboost_pred", "naive_pred"),
+        ]
+    )
+    print()
+    print(significance.to_string(index=False))
+
     univariate_dates = univariate_results[["week_id"]].merge(
         ssb[["week_id", "week_start_date"]], on="week_id", how="left"
     )["week_start_date"]
@@ -304,6 +337,25 @@ def main() -> None:
     print()
     print(rmse_by_day.to_string(index=False))
     plot_nowcast_rmse_by_day(rmse_by_day, REPO_ROOT / nowcast_cfg["chart_path"])
+
+    nowcast_significance = pd.DataFrame(
+        [
+            significance_row(
+                f"nowcast_day_{day}",
+                nowcast_results[nowcast_results["days_elapsed_in_week"] == day],
+                "nowcast_pred",
+                "static_baseline_pred",
+            )
+            for day in sorted(nowcast_results["days_elapsed_in_week"].unique())
+        ]
+    )
+    print()
+    print(nowcast_significance.to_string(index=False))
+
+    significance = pd.concat([significance, nowcast_significance], ignore_index=True)
+    significance_path = REPO_ROOT / model_config["backtest"]["significance_path"]
+    significance_path.parent.mkdir(parents=True, exist_ok=True)
+    significance.to_csv(significance_path, index=False)
 
 
 if __name__ == "__main__":

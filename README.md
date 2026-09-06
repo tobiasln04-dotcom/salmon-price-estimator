@@ -86,22 +86,28 @@ updating on daily data helps at all.
 
 ![Weekly SSB export price: actual vs. one-step-ahead forecast](assets/weekly_forecast_vs_actual.png)
 
-| Variant | Weeks backtested | Date range | MAPE | RMSE | Directional accuracy |
-|---|---|---|---|---|---|
-| **SARIMAX univariate** | 1,230 | 2003 – 2026 | **3.54%** (naive: 3.59%) | **2.79** (naive: 2.91) | **58.9%** (naive: 0.5%) |
-| SARIMAX exogenous | 230 | 2022 – 2026 | 4.96% (naive: 4.29%) | 5.84 (naive: 5.14) | 54.3% (naive: 0.0%) |
-| XGBoost autoregressive | 1,126 | 2004 – 2026 | 3.92% (naive: 3.75%) | 3.11 (naive: 3.04) | 54.8% (naive: 0.4%) |
-| XGBoost exogenous | 178 | 2023 – 2026 | 4.50% (naive: 4.31%) | 5.32 (naive: 5.26) | 55.1% (naive: 0.0%) |
+| Variant | Weeks backtested | Date range | MAPE | RMSE | Directional accuracy | vs. naive (Diebold-Mariano) |
+|---|---|---|---|---|---|---|
+| **SARIMAX univariate** | 1,230 | 2003 – 2026 | **3.54%** (naive: 3.59%) | **2.79** (naive: 2.91) | **58.9%** (naive: 0.5%) | **significantly better** (p = 0.019) |
+| SARIMAX exogenous | 230 | 2022 – 2026 | 4.96% (naive: 4.29%) | 5.84 (naive: 5.14) | 54.3% (naive: 0.0%) | significantly **worse** (p = 0.032) |
+| XGBoost autoregressive | 1,126 | 2004 – 2026 | 3.92% (naive: 3.75%) | 3.11 (naive: 3.04) | 54.8% (naive: 0.4%) | no significant difference (p = 0.368) |
+| XGBoost exogenous | 178 | 2023 – 2026 | 4.50% (naive: 4.31%) | 5.32 (naive: 5.26) | 55.1% (naive: 0.0%) | no significant difference (p = 0.840) |
 
-**Only the univariate SARIMAX beats naive on all three criteria.** That's
-the headline model, and it's worth stating plainly rather than treating
-it as a stepping stone to something fancier: neither adding exogenous
-features nor moving to a more flexible model closed the gap to naive on
-point-forecast accuracy (MAPE/RMSE) — all three other variants land
-within a few percent of naive, sometimes marginally worse. Every variant
-comfortably beats naive on directional accuracy, though, since the naive
-forecast is structurally incapable of ever predicting a price move (it
-just repeats the last value).
+**Only the univariate SARIMAX beats naive on all three criteria — and
+that edge is statistically real, not a lucky point estimate.** A
+[Diebold-Mariano test](https://en.wikipedia.org/wiki/Diebold%E2%80%93Mariano_test)
+(`eval/significance.py`, squared-error loss, Harvey-Leybourne-Newbold
+small-sample correction) on the two forecast-error series confirms the
+3.54%-vs-3.59% MAPE gap is significant at the 5% level (p = 0.019), not
+noise. The other three results get more nuanced with a significance test
+applied, rather than less: the **SARIMAX exogenous variant is
+significantly *worse* than naive** (p = 0.032 — this isn't just a worse
+point estimate, it's a real effect), while **both XGBoost variants are
+statistically indistinguishable from naive** (p = 0.37 and 0.84) — not
+proven worse, just not proven better either. Every variant comfortably
+beats naive on directional accuracy, though, since the naive forecast is
+structurally incapable of ever predicting a price move (it just repeats
+the last value).
 
 This is a genuinely useful negative result, not a disappointing one: it
 shows the naive "last observed value" benchmark is a legitimately hard
@@ -137,37 +143,45 @@ much closer to naive than SARIMAX's did (4.96%) — the gap shrank by
 roughly two-thirds — and a feature-importance check on the fitted model
 confirms `fishmeal_price_usd_per_tonne` and `sst_anomaly_c` aren't dead
 weight (they rank mid-pack among all 14 features, not last). So XGBoost
-*does* extract some real signal from them. It just isn't enough, on this
-data, to beat a genuinely tough benchmark.
+*does* extract some real signal from them. And per the Diebold-Mariano
+test above, XGBoost's shortfall (both variants) **isn't even
+statistically distinguishable from naive** — a materially different, and
+more defensible, position than SARIMAX-X's, which is significantly worse.
 
 **Conclusion**: this isn't "fishmeal and sea temperature are useless" or
-"XGBoost failed" — it's "the exogenous features carry weak signal, XGBoost
-extracts a bit more of it than a linear model can, and neither that nor
-extra model flexibility is enough to beat naive on this particular
-series." The honest headline model remains the univariate SARIMAX.
+"XGBoost failed" — it's "the exogenous features carry weak signal,
+XGBoost extracts a bit more of it than a linear model can (enough to turn
+a significant loss into statistical noise, even if not into a win), and
+neither approach clears naive on this particular series." The honest
+headline model remains the univariate SARIMAX.
 
 ## Daily nowcast result
 
 ![Nowcast RMSE by day of week](assets/nowcast_rmse_by_day.png)
 
-| Day | Weeks | Nowcast RMSE | Static baseline RMSE (no daily update) |
-|---|---|---|---|
-| Mon | 747 | 3.71 | 3.47 |
-| Tue | 747 | 3.63 | 3.47 |
-| Wed | 747 | 3.63 | 3.47 |
-| Thu | 747 | 3.73 | 3.47 |
+| Day | Weeks | Nowcast RMSE | Static baseline RMSE (no daily update) | vs. static (Diebold-Mariano) |
+|---|---|---|---|---|
+| Mon | 747 | 3.71 | 3.47 | significantly worse (p = 0.030) |
+| Tue | 747 | 3.63 | 3.47 | significantly worse (p = 0.050) |
+| Wed | 747 | 3.63 | 3.47 | significantly worse (p = 0.029) |
+| Thu | 747 | 3.73 | 3.47 | significantly worse (p < 0.001) |
 
 This is a third instance of the same pattern as above, and it's reported
 just as plainly: **the nowcast doesn't beat the static baseline on any
 day**, and RMSE doesn't decline monotonically Mon → Thu either (it dips
-Tue/Wed, then rises again Thursday). Daily FX moves and Oslo Børs
-salmon-stock returns turn out to be a fairly indirect, noisy proxy for
-the actual weekly export-price surprise — equity prices for these
-companies reflect a lot more than just the spot salmon price (forward
-earnings expectations, general market moves, company-specific news), and
-a feature-importance check on the fitted model shows no single daily
-feature dominates (importances span a narrow 0.008–0.018 range), the
-same diffuse-signal pattern seen in the weekly exogenous features.
+Tue/Wed, then rises again Thursday). The Diebold-Mariano test confirms
+this isn't noise — the underperformance is statistically significant
+every single day, and, notably, **gets more significant as the week
+progresses** (Thursday's p-value is two orders of magnitude smaller than
+Monday's) even though the RMSE gap itself doesn't move monotonically.
+Daily FX moves and Oslo Børs salmon-stock returns turn out to be a fairly
+indirect, noisy proxy for the actual weekly export-price surprise —
+equity prices for these companies reflect a lot more than just the spot
+salmon price (forward earnings expectations, general market moves,
+company-specific news), and a feature-importance check on the fitted
+model shows no single daily feature dominates (importances span a narrow
+0.008–0.018 range), the same diffuse-signal pattern seen in the weekly
+exogenous features.
 
 **Taken together with the weekly results above, this project's honest
 finding is a coherent one, not three unrelated disappointments**: the
@@ -221,8 +235,9 @@ uv run python scripts/run_backtest.py
 This fetches all data sources if they're not already cached locally,
 builds the joined weekly panel/features, runs all four weekly backtest
 variants plus the daily nowcast backtest, writes
-`data/processed/backtest_*.parquet` and `data/processed/backtest_metrics.csv`,
-and regenerates both chart images under `assets/`. **A fresh run takes
+`data/processed/backtest_*.parquet`, `data/processed/backtest_metrics.csv`,
+and `data/processed/significance_tests.csv` (the Diebold-Mariano results
+above), and regenerates both chart images under `assets/`. **A fresh run takes
 roughly 40 minutes** — SARIMAX refit cost scales superlinearly with
 training window size on this ~1,300-week series (see `config/model.yaml`
 and `eval/backtest.py` for the measured numbers and the runtime

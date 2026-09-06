@@ -69,6 +69,10 @@ Build an AI price estimator for the Norwegian salmon farming market:
    NOT decline monotonically Mon->Thu** (see 2026-09-04 log) - that
    success criterion from the Goal section was not met; reported honestly
    in the README rather than adjusted until it looked right.
+   `eval/significance.py` (added 2026-09-06) tests whether each variant's
+   point-estimate edge over its benchmark is statistically real (Diebold-
+   Mariano test) - see that session log entry, the answer turned out more
+   nuanced than the point estimates alone suggested.
 5. **`scripts/run_backtest.py`** — single entry point that reproduces the
    headline result end-to-end. Config lives in `config/*.yaml` so
    hyperparameters and date ranges are auditable, not hardcoded. Done for
@@ -480,6 +484,45 @@ the current step calls for.
   tests) passes, `ruff check .` clean, chart visually confirmed.
   Added to the README as its own section, between the nowcast result and
   "Reproducing these results".
+- **2026-09-06 (continued)**: Added statistical rigor the project was
+  missing - every "beats/loses to naive" claim so far was a bare point
+  estimate (e.g. univariate SARIMAX's 3.54% vs. 3.59% MAPE), with no test
+  of whether that margin is distinguishable from noise. Built
+  `eval/significance.py`: a Diebold-Mariano test (squared-error loss,
+  Harvey-Leybourne-Newbold small-sample correction, compared against a
+  Student's t rather than normal distribution) on each variant's forecast
+  errors vs. its benchmark's. Applied to all 4 weekly variants (vs. naive)
+  and all 4 nowcast day-buckets (vs. the static baseline), wired into
+  `scripts/run_backtest.py`, results saved to
+  `data/processed/significance_tests.csv`.
+  **This made the story more nuanced, not just more confirmed**:
+  - `sarimax_univariate` vs naive: p=0.019, **significantly better** -
+    the headline claim is now confirmed statistically real, not a lucky
+    point estimate.
+  - `sarimax_exogenous` vs naive: p=0.032, **significantly worse** - this
+    one previously read as "a worse point estimate"; the test shows it's
+    a real effect, not noise either.
+  - `xgboost_autoregressive` and `xgboost_exogenous` vs naive: p=0.368
+    and p=0.840, **no significant difference either way**. This is a
+    materially different conclusion than "XGBoost doesn't beat naive" -
+    it's "we can't statistically distinguish XGBoost from naive," which
+    is a more defensible, weaker claim than SARIMAX-X's proven-worse
+    result. Don't conflate these two "doesn't beat naive" cases in the
+    README or future write-ups - they're statistically different findings.
+  - All 4 nowcast day-buckets vs. static baseline: significantly worse on
+    every day (p from 0.030 down to 0.00004) - and notably, **significance
+    strengthens Mon->Thu even though the RMSE gap itself isn't
+    monotonic** - an interesting wrinkle worth keeping in mind if the
+    nowcast is ever revisited.
+  Verification: full pytest suite (66 tests, incl. deliberately-constructed
+  known-answer cases for the DM test itself - a clearly-better-model case,
+  an identical-errors case that must return NaN not 0 since it's genuinely
+  a 0/0 degenerate input, and a zero-mean-but-not-identical case
+  constructed to give an exact analytical answer) passes, `ruff check .`
+  clean. README updated throughout (headline table, the exogenous/XGBoost
+  discussion, and the nowcast section) to reflect the more precise
+  significant/worse vs. not-significant distinction rather than treating
+  every non-win as equivalent.
 
 ## Deferred items
 

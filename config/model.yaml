@@ -42,6 +42,10 @@ weekly_panel:
 backtest:
   metrics_path: "data/processed/backtest_metrics.csv"
   weekly_chart_path: "assets/weekly_forecast_vs_actual.png"
+  # Diebold-Mariano test (2026-09-06, see CLAUDE.md session log): is each
+  # variant's point-estimate edge over naive actually statistically
+  # significant, or could it be noise? See eval/significance.py.
+  significance_path: "data/processed/significance_tests.csv"
 
 # XGBoost weekly stage (decided 2026-09-03, see CLAUDE.md session log):
 # also built as two variants, mirroring the SARIMAX split, specifically to
