@@ -560,6 +560,81 @@ the current step calls for.
   added to "Headline result", and every remaining "random walk" mention
   elsewhere in the README repointed to the new section instead of
   restating the claim loosely.
+- **2026-09-06 (continued yet further)**: Added prediction intervals -
+  every result so far was a point forecast with no sense of how much to
+  trust it. `models/sarimax_baseline.py` gained
+  `forecast_one_step_with_interval` (purely additive, doesn't touch the
+  existing `forecast_one_step` or its tests) using statsmodels' native
+  `get_forecast().conf_int()`. `eval/backtest.py`'s `walk_forward_backtest`
+  gained an optional `interval_alpha` param (default `None` = unchanged
+  behavior/schema for existing callers/tests) that adds `lower`/`upper`
+  columns when set. Built `eval/prediction_intervals.py` for XGBoost
+  (which has no native interval): `empirical_interval_backtest` - point
+  forecast ± the trailing `window` (104 weeks, config-driven) *realized*
+  residual quantiles, using only residuals from strictly before that
+  row (no look-ahead) - and `compute_coverage` (empirical coverage rate +
+  mean/median width), which works identically for SARIMAX's native
+  interval or XGBoost's empirical one.
+  Since `interval_alpha` changes the SARIMAX backtest's output schema,
+  `backtest_univariate.parquet`/`backtest_exogenous.parquet` needed a
+  one-time deletion to force recompute (~32 min rerun, same cost as any
+  SARIMAX rerun) - XGBoost's caches were untouched since its interval is
+  computed post-hoc on the existing cached results, no rerun needed there.
+  **This surfaced a real, striking finding, checked carefully before
+  writing it down** (verified via inspecting the raw backtest parquets
+  directly, not just trusting the aggregate number) -
+  `data/processed/interval_coverage.csv`:
+
+  | variant | interval type | coverage (nominal 95%) | median width | mean width |
+  |---|---|---|---|---|
+  | sarimax_univariate | native conf_int | 76.7% | 4.7 | 23,145 (!) |
+  | sarimax_exogenous | native conf_int | 89.1% | 18.9 | 2.12 billion (!!) |
+  | xgboost_autoregressive | empirical | 90.6% | 9.3 | 10.6 |
+  | xgboost_exogenous | empirical | 94.4% | 20.9 | 20.9 |
+
+  **sarimax_univariate systematically undercovers** (76.7% vs. 95%
+  stated) - not an outlier artifact, a real and consistent problem.
+  Checked coverage by 5-year bucket: 2000-2010 ~85%, 2015 ~69%, 2020 ~74%,
+  2025 ~68% - it gets *worse* over time as the series has gotten more
+  volatile (prices roughly tripled since 2003, see the headline chart),
+  while `refit_every_n_weeks=52` (annual refit, chosen purely for
+  runtime - see 2026-08-31 log) means the model's uncertainty estimate
+  only updates once a year and can't track that rising volatility.
+  **sarimax_exogenous is mostly fine (median width 18.9) but a handful of
+  individual walk-forward refits produce an interval billions of NOK/kg
+  wide** on a series that trades 15-125 NOK/kg - confirmed by inspecting
+  the raw parquet: rows 112-119 all share one absurd width (one bad
+  refit's degenerate variance estimate persisting via `.extend()` until
+  the next refit), rows 144-145 share a different absurd width (a second
+  bad refit). This is the **same root cause already diagnosed** for this
+  variant's point-forecast problems (2026-09-03 log): the seasonal MA
+  coefficient sits at its numerical boundary with an enormous standard
+  error when fit on this short 2020+ window - here it also occasionally
+  makes the *interval* meaningless, not just the point forecast worse.
+  **XGBoost's simpler empirical intervals are the best-calibrated of the
+  four** (90.6%, 94.4%, both close to nominal) and can't produce a
+  degenerate result by construction (a quantile of real recent residuals
+  is always sane). Added a fan chart,
+  `assets/weekly_forecast_recent_with_interval.png` (last 104 weeks only -
+  the full 23-year history makes a ~5-10 NOK/kg band visually
+  indistinguishable from the line) - it visibly shows the actual price
+  poking outside the shaded band repeatedly, a direct visual confirmation
+  of the univariate undercoverage finding.
+  **Conclusion, and what to tell a future session**: don't read
+  "SARIMAX wins on point forecasts" as "SARIMAX's intervals are also more
+  trustworthy" - they're a separate question, and here the answer is the
+  opposite: the empirical approach is the safer one to actually rely on
+  for a real decision. This is the same "more sophisticated isn't
+  automatically better, test it" pattern as everything else in this
+  project, now applied to uncertainty quantification rather than point
+  accuracy. Config additions in `config/model.yaml`: new
+  `prediction_intervals` block (`alpha`, `empirical_window`,
+  `empirical_min_history`, `coverage_path`, `fan_chart_path`,
+  `fan_chart_weeks`). Verification: full pytest suite (85 tests) passes,
+  `ruff check .` clean. README updated: new "How reliable are these
+  forecasts, not just how accurate?" section (between the exogenous/
+  XGBoost discussion and "Is this actually a random walk?"), with the fan
+  chart embedded.
 
 ## Deferred items
 

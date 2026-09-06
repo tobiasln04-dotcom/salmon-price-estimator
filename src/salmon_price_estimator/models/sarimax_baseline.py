@@ -39,3 +39,17 @@ def forecast_one_step(results: SARIMAXResultsWrapper, exog: np.ndarray | None = 
     """Read the one-step-ahead point forecast off a fitted/updated SARIMAX result."""
     forecast = results.get_forecast(steps=1, exog=exog)
     return float(forecast.predicted_mean[0])
+
+
+def forecast_one_step_with_interval(
+    results: SARIMAXResultsWrapper,
+    exog: np.ndarray | None = None,
+    alpha: float = 0.05,
+) -> tuple[float, float, float]:
+    """Point forecast plus the model's native `(1-alpha)` prediction interval
+    (e.g. alpha=0.05 -> 95%). Separate from `forecast_one_step` rather than
+    an added parameter there, so existing callers/tests are untouched."""
+    forecast = results.get_forecast(steps=1, exog=exog)
+    point = float(forecast.predicted_mean[0])
+    lower, upper = forecast.conf_int(alpha=alpha)[0]
+    return point, float(lower), float(upper)

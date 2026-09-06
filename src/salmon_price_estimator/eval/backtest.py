@@ -16,7 +16,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from salmon_price_estimator.models.sarimax_baseline import fit_sarimax, forecast_one_step
+from salmon_price_estimator.models.sarimax_baseline import (
+    fit_sarimax,
+    forecast_one_step,
+    forecast_one_step_with_interval,
+)
 
 
 def walk_forward_backtest(
@@ -27,11 +31,16 @@ def walk_forward_backtest(
     seasonal_order: tuple[int, int, int, int],
     min_train_weeks: int,
     refit_every_n_weeks: int,
+    interval_alpha: float | None = None,
 ) -> pd.DataFrame:
     """Expanding-window one-step-ahead backtest.
 
     Returns one row per forecasted week: `week_id`, `actual`, `sarimax_pred`,
-    `naive_pred` (previous week's actual).
+    `naive_pred` (previous week's actual). If `interval_alpha` is given (e.g.
+    0.05 for a 95% interval), also includes `lower`/`upper` columns from the
+    model's native prediction interval at that step - purely additive, so
+    the default (`None`) leaves the schema and behavior unchanged for
+    existing callers.
     """
     week_ids = np.asarray(week_ids)
     y = np.asarray(y, dtype=float)
@@ -47,15 +56,23 @@ def walk_forward_backtest(
     records = []
     for i in range(min_train_weeks, len(y)):
         exog_forecast = exog[i : i + 1] if exog is not None else None
-        prediction = forecast_one_step(results, exog=exog_forecast)
-        records.append(
-            {
-                "week_id": week_ids[i],
-                "actual": y[i],
-                "sarimax_pred": prediction,
-                "naive_pred": y[i - 1],
-            }
-        )
+        if interval_alpha is not None:
+            prediction, lower, upper = forecast_one_step_with_interval(
+                results, exog=exog_forecast, alpha=interval_alpha
+            )
+        else:
+            prediction = forecast_one_step(results, exog=exog_forecast)
+
+        record = {
+            "week_id": week_ids[i],
+            "actual": y[i],
+            "sarimax_pred": prediction,
+            "naive_pred": y[i - 1],
+        }
+        if interval_alpha is not None:
+            record["lower"] = lower
+            record["upper"] = upper
+        records.append(record)
 
         steps_done = i - min_train_weeks + 1
         exog_new = exog[i : i + 1] if exog is not None else None

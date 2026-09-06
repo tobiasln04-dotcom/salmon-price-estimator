@@ -52,6 +52,10 @@ from salmon_price_estimator.eval.backtest import walk_forward_backtest
 from salmon_price_estimator.eval.backtest_nowcast import walk_forward_nowcast_backtest
 from salmon_price_estimator.eval.backtest_xgboost import rolling_window_backtest
 from salmon_price_estimator.eval.ensemble import build_ensemble_predictions
+from salmon_price_estimator.eval.prediction_intervals import (
+    compute_coverage,
+    empirical_interval_backtest,
+)
 from salmon_price_estimator.eval.random_walk_test import adf_test, ljung_box_test
 from salmon_price_estimator.eval.significance import diebold_mariano_test
 from salmon_price_estimator.features import weekly_panel
@@ -209,6 +213,38 @@ def plot_weekly_forecast_vs_actual(
     plt.close(fig)
 
 
+def plot_recent_forecast_with_interval(
+    results: pd.DataFrame, week_start_dates: pd.Series, n_weeks: int, path: Path
+) -> None:
+    """Fan chart: actual vs. forecast with its prediction interval, last
+    `n_weeks` only - the full multi-decade history makes a ~3%-wide band
+    visually indistinguishable from the line itself."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    recent = results.tail(n_weeks)
+    dates = week_start_dates.tail(n_weeks)
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.fill_between(
+        dates, recent["lower"], recent["upper"], color="#2a78d6", alpha=0.15, label="95% interval"
+    )
+    ax.plot(dates, recent["actual"], label="Actual", linewidth=1.5, color="#0b0b0b")
+    ax.plot(
+        dates,
+        recent["sarimax_pred"],
+        label="SARIMAX forecast",
+        linewidth=1.5,
+        color="#2a78d6",
+        alpha=0.9,
+    )
+    ax.set_xlabel("Week")
+    ax.set_ylabel("NOK/kg")
+    ax.set_title(f"Weekly forecast with 95% prediction interval (last {n_weeks} weeks)")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def nowcast_rmse_by_day(nowcast_results: pd.DataFrame) -> pd.DataFrame:
     """RMSE by days-elapsed-in-week, for the nowcast and the static
     (baseline-held-flat-all-week) comparison - the headline nowcast table."""
@@ -273,6 +309,8 @@ def main() -> None:
     rw_summary.to_csv(rw_path, index=False)
     print()
 
+    interval_cfg = model_config["prediction_intervals"]
+
     uni_cfg = model_config["sarimax_univariate"]
     univariate_results = compute_or_load(
         REPO_ROOT / uni_cfg["results_path"],
@@ -284,6 +322,7 @@ def main() -> None:
             seasonal_order=tuple(uni_cfg["seasonal_order"]),
             min_train_weeks=uni_cfg["min_train_weeks"],
             refit_every_n_weeks=uni_cfg["refit_every_n_weeks"],
+            interval_alpha=interval_cfg["alpha"],
         ),
     )
 
@@ -298,6 +337,7 @@ def main() -> None:
             seasonal_order=tuple(exo_cfg["seasonal_order"]),
             min_train_weeks=exo_cfg["min_train_weeks"],
             refit_every_n_weeks=exo_cfg["refit_every_n_weeks"],
+            interval_alpha=interval_cfg["alpha"],
         ),
     )
 
@@ -365,6 +405,55 @@ def main() -> None:
     )["week_start_date"]
     weekly_chart_path = REPO_ROOT / model_config["backtest"]["weekly_chart_path"]
     plot_weekly_forecast_vs_actual(univariate_results, univariate_dates, weekly_chart_path)
+
+    # --- Prediction intervals: SARIMAX native (already in univariate/exogenous
+    # results above), XGBoost via empirical rolling-residual quantiles ---
+    xgb_auto_with_interval = empirical_interval_backtest(
+        xgb_auto_results,
+        "xgboost_pred",
+        alpha=interval_cfg["alpha"],
+        window=interval_cfg["empirical_window"],
+        min_history=interval_cfg["empirical_min_history"],
+    )
+    xgb_exo_with_interval = empirical_interval_backtest(
+        xgb_exo_results,
+        "xgboost_pred",
+        alpha=interval_cfg["alpha"],
+        window=interval_cfg["empirical_window"],
+        min_history=interval_cfg["empirical_min_history"],
+    )
+
+    coverage = pd.DataFrame(
+        [
+            {"variant": "sarimax_univariate", "interval_type": "native (SARIMAX conf_int)"}
+            | compute_coverage(univariate_results),
+            {"variant": "sarimax_exogenous", "interval_type": "native (SARIMAX conf_int)"}
+            | compute_coverage(exogenous_results),
+            {
+                "variant": "xgboost_autoregressive",
+                "interval_type": "empirical (rolling residual quantiles)",
+            }
+            | compute_coverage(xgb_auto_with_interval),
+            {
+                "variant": "xgboost_exogenous",
+                "interval_type": "empirical (rolling residual quantiles)",
+            }
+            | compute_coverage(xgb_exo_with_interval),
+        ]
+    )
+    coverage["nominal_coverage"] = 1 - interval_cfg["alpha"]
+    print()
+    print(coverage.to_string(index=False))
+    coverage_path = REPO_ROOT / interval_cfg["coverage_path"]
+    coverage_path.parent.mkdir(parents=True, exist_ok=True)
+    coverage.to_csv(coverage_path, index=False)
+
+    plot_recent_forecast_with_interval(
+        univariate_results,
+        univariate_dates,
+        n_weeks=interval_cfg["fan_chart_weeks"],
+        path=REPO_ROOT / interval_cfg["fan_chart_path"],
+    )
 
     # --- Daily nowcast layer, anchored on the univariate SARIMAX forecast ---
     nowcast_cfg = model_config["nowcast"]

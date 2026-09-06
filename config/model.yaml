@@ -53,6 +53,20 @@ backtest:
   # eval/ensemble.py.
   ensemble_results_path: "data/processed/backtest_ensemble.parquet"
 
+# Prediction intervals (2026-09-06, see CLAUDE.md session log): SARIMAX
+# gets a native model-based interval (statsmodels' conf_int, via
+# eval/backtest.py's interval_alpha param); XGBoost has no native
+# interval, so it gets an empirical rolling-residual-quantile interval
+# instead (eval/prediction_intervals.py). Both get the same calibration
+# check: does empirical coverage match the nominal (1-alpha) level?
+prediction_intervals:
+  alpha: 0.05 # 95% interval
+  empirical_window: 104 # ~2 years of trailing residuals for the XGBoost variants
+  empirical_min_history: 52
+  coverage_path: "data/processed/interval_coverage.csv"
+  fan_chart_path: "assets/weekly_forecast_recent_with_interval.png"
+  fan_chart_weeks: 104 # ~2 years - full 23-year history would make the band unreadable
+
 # XGBoost weekly stage (decided 2026-09-03, see CLAUDE.md session log):
 # also built as two variants, mirroring the SARIMAX split, specifically to
 # test whether XGBoost's more flexible (non-parametric-seasonal)

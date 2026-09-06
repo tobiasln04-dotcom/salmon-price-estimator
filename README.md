@@ -171,6 +171,72 @@ a significant loss into statistical noise, even if not into a win), and
 neither approach clears naive on this particular series." The honest
 headline model remains the univariate SARIMAX.
 
+## How reliable are these forecasts, not just how accurate?
+
+![Weekly forecast with 95% prediction interval, last 104 weeks](assets/weekly_forecast_recent_with_interval.png)
+
+Every result above is a point forecast. A point forecast alone doesn't
+say how much to trust it, so each variant also gets a **95% prediction
+interval** — SARIMAX's is native (statsmodels' `conf_int`, the model's
+own state-space uncertainty estimate); XGBoost has no native equivalent,
+so it gets an **empirical interval** instead (`eval/prediction_intervals.py`):
+the point forecast ± the trailing 104 weeks' realized-residual quantiles,
+using only residuals from *before* that forecast, no look-ahead. Then
+both get the same check: **does the stated interval actually contain the
+true value ~95% of the time** (`data/processed/interval_coverage.csv`)?
+
+| Variant | Interval type | Coverage (nominal 95%) | Median width | Mean width |
+|---|---|---|---|---|
+| SARIMAX univariate | native (conf_int) | **76.7%** — undercovers | 4.7 NOK/kg | 23,145 NOK/kg (!) |
+| SARIMAX exogenous | native (conf_int) | 89.1% | 18.9 NOK/kg | 2.1 billion NOK/kg (!!) |
+| XGBoost autoregressive | empirical (residual quantiles) | 90.6% | 9.3 NOK/kg | 10.6 NOK/kg |
+| XGBoost exogenous | empirical (residual quantiles) | **94.4%** | 20.9 NOK/kg | 20.9 NOK/kg |
+
+This is a real finding, checked carefully before writing it down (the
+absurd mean widths are not a bug — see below) — and it runs the same
+direction as everything else in this project: **the theoretically
+"proper" approach isn't automatically the reliable one.**
+
+- **SARIMAX univariate's intervals are consistently too narrow** — 76.7%
+  actual coverage against a stated 95%, not a one-off. The chart above
+  shows why: the actual price visibly pokes outside the shaded band
+  repeatedly. The likely cause is the same runtime tradeoff documented
+  for this variant's `refit_every_n_weeks=52` (annual refit, chosen
+  because more frequent refits would have pushed the backtest past 2
+  hours) — the model's uncertainty estimate only updates once a year,
+  so it can't keep pace with a series whose volatility has risen sharply
+  since ~2022 (visible in the headline chart earlier). The median width
+  (4.7 NOK/kg) looks reasonable in isolation; it's just too narrow too
+  often given how much the series actually moves now.
+- **SARIMAX exogenous's intervals occasionally become numerically
+  vacuous** — most of the time the width is sane (median 18.9 NOK/kg),
+  but a handful of refits during the walk-forward loop produce an
+  interval **billions of NOK/kg wide** (on a series that trades between
+  15 and 125 NOK/kg), dragging the mean to 2.1 billion. This traces
+  directly to the already-diagnosed problem with this variant: the
+  seasonal MA coefficient sits at its numerical boundary with an
+  enormous standard error in a full-sample fit (see "Why the exogenous
+  features and XGBoost didn't help" above) — during the walk-forward
+  loop, on a short 2020+ window, some individual refits hit that same
+  instability and the resulting interval becomes meaningless rather than
+  merely wrong.
+- **XGBoost's simpler empirical intervals turned out to be the more
+  trustworthy ones** — both variants land close to their nominal 95%
+  (90.6%, 94.4%), and by construction (point forecast ± a quantile of
+  recent real residuals) they can't produce a nonsensical result the way
+  a parametric interval can when the underlying model is poorly
+  identified.
+
+**Conclusion**: this isn't an argument that XGBoost is the better model
+overall — on point-forecast accuracy, univariate SARIMAX still wins
+clearly (see above). It's that *uncertainty quantification* is a
+separate question from point-forecast accuracy, worth checking
+separately rather than assuming a textbook-correct-looking interval is
+automatically a reliable one. If this project's forecasts were ever used
+for an actual decision (e.g. sizing a hedge), the empirical-interval
+approach would be the safer one to trust, precisely because it can't
+silently fail the way the parametric one did here.
+
 ## Is this actually a random walk?
 
 "Behaves close to a random walk" has been stated qualitatively so far —
@@ -284,25 +350,30 @@ uv run python scripts/run_backtest.py
 
 This fetches all data sources if they're not already cached locally,
 builds the joined weekly panel/features, runs all four weekly backtest
-variants plus the ensemble and the daily nowcast backtest, writes
-`data/processed/backtest_*.parquet`, `data/processed/backtest_metrics.csv`,
-`data/processed/significance_tests.csv` (the Diebold-Mariano results
-above), and `data/processed/random_walk_tests.csv` (the ADF/Ljung-Box
-results above), and regenerates both chart images under `assets/`.
-**A fresh run takes roughly 40 minutes** — SARIMAX refit cost scales superlinearly with
-training window size on this ~1,300-week series (see `config/model.yaml`
-and `eval/backtest.py` for the measured numbers and the runtime
-tradeoffs that shaped the default config); XGBoost and the nowcast layer
-add only a few more minutes on top since retraining them is cheap. Each
-variant's results are cached under `data/processed/` and skipped on
-subsequent runs unless deleted, so an interrupted run resumes rather than
-starting over.
+variants (with prediction intervals) plus the ensemble and the daily
+nowcast backtest, writes `data/processed/backtest_*.parquet`,
+`data/processed/backtest_metrics.csv`, `data/processed/significance_tests.csv`
+(the Diebold-Mariano results above), `data/processed/random_walk_tests.csv`
+(the ADF/Ljung-Box results), `data/processed/interval_coverage.csv` (the
+calibration table above), and regenerates all three chart images under
+`assets/`. **A fresh run takes roughly 40 minutes** — SARIMAX refit cost
+scales superlinearly with training window size on this ~1,300-week
+series (see `config/model.yaml` and `eval/backtest.py` for the measured
+numbers and the runtime tradeoffs that shaped the default config);
+XGBoost and the nowcast layer add only a few more minutes on top since
+retraining them is cheap. Each variant's results are cached under
+`data/processed/` and skipped on subsequent runs unless deleted, so an
+interrupted run resumes rather than starting over — note that adding
+prediction intervals changed the SARIMAX result schema, so those two
+cache files needed a one-time deletion to pick up the new `lower`/`upper`
+columns.
 
 Unlike everything else in `data/processed/` (gitignored, regenerated on
-demand), the three PNGs under `assets/` **are committed** — they're the
-artifacts this README embeds directly, so they need to actually be in
-the repo rather than regenerated-and-ignored. Re-run the relevant script
-and commit the updated PNGs if the underlying results change.
+demand), all four PNGs under `assets/` (three from this script, plus the
+stock-correlation chart below) **are committed** — they're the artifacts
+this README embeds directly, so they need to actually be in the repo
+rather than regenerated-and-ignored. Re-run the relevant script and
+commit the updated PNGs if the underlying results change.
 
 The stock-correlation side analysis is a separate, optional script (it
 isn't part of the core forecasting pipeline, so it isn't in
