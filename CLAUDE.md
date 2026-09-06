@@ -448,6 +448,38 @@ the current step calls for.
   Anything further (MIDAS v2, a config framework, revisiting a deferred
   source) needs the user to actively propose it, not a future session
   assuming there's more to do.
+- **2026-09-06**: Pushed the full build to GitHub (`origin/main`, commit
+  `7e77f75`) - confirmed both chart images actually render (checked the
+  raw file URLs directly, HTTP 200 + correct content-type; a WebFetch
+  render-check gave a false "images broken" reading, which turned out to
+  be an artifact of its HTML-to-markdown conversion, not a real GitHub
+  problem - don't trust that method for verifying rendered images again).
+  Then added a side analysis the user asked for: which of the 5 salmon
+  stocks' weekly returns co-moves most with the SSB salmon price's own
+  weekly return. Built as a **separate** script
+  (`scripts/analyze_stock_correlations.py`, not part of
+  `run_backtest.py` - this is a descriptive analysis, not a forecast),
+  with the testable logic in `eval/stock_correlation.py`
+  (`compute_stock_salmon_correlations`, reuses `asof_lookup` from
+  `features/daily_nowcast_features.py` for the daily-to-weekly
+  alignment) and config in `config/model.yaml`'s `stock_correlation`
+  block. Used the `dataviz` skill for the chart (single accent hue
+  `#2a78d6` for all 5 bars, since the job is comparing one metric across
+  named categories, not distinguishing series - see the skill's
+  color-formula.md on nominal categoricals - plus its palette's
+  text/gridline/surface tokens).
+  **Result**: BAKKA (Bakkafrost) and GSF (Grieg Seafood) show the
+  highest correlation to salmon price (0.046, 0.036) over the common
+  2010-present window, MOWI the lowest (0.013) - but the real finding is
+  that **all five are close to zero** (R² 0.02-0.2%). This is a fourth,
+  independent confirmation of this project's central theme: salmon-price-
+  adjacent signals carry very little exploitable weekly information, this
+  time from the other direction (salmon-company stocks barely track the
+  spot price even contemporaneously, which explains in hindsight why they
+  were weak nowcast predictors too). Verification: full pytest suite (61
+  tests) passes, `ruff check .` clean, chart visually confirmed.
+  Added to the README as its own section, between the nowcast result and
+  "Reproducing these results".
 
 ## Deferred items
 

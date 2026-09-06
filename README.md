@@ -178,6 +178,39 @@ flexibility (exogenous features, XGBoost, daily nowcasting) came up
 short against it. The univariate SARIMAX remains the one model in this
 project that clears the bar.
 
+## Side analysis: which salmon stock tracks the salmon price?
+
+![Which salmon stock tracks the salmon price?](assets/stock_salmon_price_correlation.png)
+
+A natural follow-up question, and one the daily-market data already
+answers (`scripts/analyze_stock_correlations.py`, not part of the core
+backtest pipeline): of the 5 Oslo Børs salmon-farming stocks, which one's
+weekly return co-moves most with the salmon export price's own weekly
+move? Same-week correlation, all 5 compared over an identical window
+(2010–present, since BAKKA's 2010 listing bounds it):
+
+| Stock | Correlation | R² |
+|---|---|---|
+| **BAKKA** (Bakkafrost) | 0.046 | 0.2% |
+| **GSF** (Grieg Seafood) | 0.036 | 0.1% |
+| SALM (SalMar) | 0.018 | 0.03% |
+| LSG (Lerøy Seafood) | 0.015 | 0.02% |
+| MOWI (Mowi) | 0.013 | 0.02% |
+
+The ranking itself is a minor, plausible detail — Bakkafrost and Grieg
+Seafood are more concentrated, vertically-integrated pure-plays; Mowi,
+the largest and most diversified, dilutes pure spot-price sensitivity
+across feed, VAP, and international operations. **The real finding is
+that every correlation is close to zero** — even the top stock's weekly
+return has salmon price explaining only 0.2% of its variance. Stock
+prices are forward-looking (pricing in *expected future* margins, not
+this week's realized export price) and these companies hedge via forward
+contracts, so this isn't surprising in hindsight — but it does explain,
+from the other direction, why the daily nowcast above (which leans on
+these same 5 stocks' returns) struggled: if salmon-company equities
+barely track the salmon spot price even in the *same* week, they were
+never going to be a strong predictor of it.
+
 ## Reproducing these results
 
 ```bash
@@ -200,10 +233,18 @@ subsequent runs unless deleted, so an interrupted run resumes rather than
 starting over.
 
 Unlike everything else in `data/processed/` (gitignored, regenerated on
-demand), the two PNGs under `assets/` **are committed** — they're the
+demand), the three PNGs under `assets/` **are committed** — they're the
 artifacts this README embeds directly, so they need to actually be in
-the repo rather than regenerated-and-ignored. Re-run the script and
-commit the updated PNGs if the underlying results change.
+the repo rather than regenerated-and-ignored. Re-run the relevant script
+and commit the updated PNGs if the underlying results change.
+
+The stock-correlation side analysis is a separate, optional script (it
+isn't part of the core forecasting pipeline, so it isn't in
+`run_backtest.py`):
+
+```bash
+uv run python scripts/analyze_stock_correlations.py
+```
 
 ## Roadmap
 

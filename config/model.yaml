@@ -120,3 +120,16 @@ nowcast:
     objective: "reg:squarederror"
   results_path: "data/processed/backtest_nowcast.parquet"
   chart_path: "assets/nowcast_rmse_by_day.png"
+
+# Side analysis (2026-09-06, see CLAUDE.md session log): which salmon-farming
+# stock's weekly return correlates most with the SSB salmon price's own
+# weekly return? Not part of the core forecasting pipeline - run via
+# scripts/analyze_stock_correlations.py, not scripts/run_backtest.py.
+# common_start is BAKKA.OL's listing date (2010-03-26, rounded up to the
+# next full week) - the same binding constraint as the nowcast layer -
+# so all 5 stocks are compared over an identical window.
+stock_correlation:
+  stock_columns: ["mowi", "salm", "lsg", "gsf", "bakka"]
+  common_start: "2010-04-01"
+  results_path: "data/processed/stock_salmon_correlation.csv"
+  chart_path: "assets/stock_salmon_price_correlation.png"
