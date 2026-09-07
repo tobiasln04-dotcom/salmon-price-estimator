@@ -8,6 +8,40 @@ the following Thursday's official print.
 are all built and backtested.** See "Roadmap" below and `CLAUDE.md` for
 the full build log.
 
+## Summary
+
+- **A simple model beats naive on 1-week accuracy, and the edge widens
+  significantly out to 12 weeks.** Univariate SARIMAX: 3.54% MAPE vs.
+  naive's 3.59% at 1 week ahead — real but thin (p = 0.019, Diebold-
+  Mariano). By 12 weeks the gap has widened to 11.6% vs. 13.3% MAPE,
+  directional accuracy has climbed from 58.9% to 69.9%, and the edge is
+  more significant, not less (p = 0.0005). See ["Headline
+  result"](#headline-result) and ["Does the edge grow at longer
+  horizons?"](#does-the-edge-grow-at-longer-horizons)
+- **More complexity didn't help at 1 week — reported honestly, not
+  tuned until it looked better.** Exogenous features (fishmeal, sea
+  temperature), XGBoost, an ensemble of the two, and a daily nowcast
+  layer all failed to beat naive on point accuracy at 1 week; some
+  results were confirmed significantly worse, not just weaker. See
+  ["Why the exogenous features and XGBoost didn't
+  help"](#why-the-exogenous-features-and-xgboost-didnt-help--and-what-that-does-and-doesnt-mean)
+- **Every claim here is tested, not just eyeballed.** Point-estimate
+  gaps are checked with Diebold-Mariano significance tests; prediction
+  intervals are checked for actual coverage (SARIMAX's turn out
+  miscalibrated, a simpler empirical approach isn't); the "hard
+  benchmark" intuition is checked with formal ADF/Ljung-Box random-walk
+  tests rather than just asserted; a notional trading strategy is
+  checked with a Newey-West HAC test, not a raw backtest number. See
+  ["How reliable are these forecasts, not just how
+  accurate?"](#how-reliable-are-these-forecasts-not-just-how-accurate)
+  and ["Is this actually a random walk?"](#is-this-actually-a-random-walk)
+
+Jump to: [Headline result](#headline-result) ·
+[Longer horizons](#does-the-edge-grow-at-longer-horizons) ·
+[Reliability](#how-reliable-are-these-forecasts-not-just-how-accurate) ·
+[Economic value](#does-the-directional-edge-translate-into-economic-value) ·
+[Reproducing these results](#reproducing-these-results)
+
 ## Data sources
 
 | Source | Frequency | Coverage | Used for |
