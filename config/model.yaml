@@ -23,6 +23,18 @@ sarimax_univariate:
   refit_every_n_weeks: 52
   results_path: "data/processed/backtest_univariate.parquet"
 
+# Multi-step-ahead extension of sarimax_univariate (2026-09-06, see
+# CLAUDE.md session log) - does naive get harder to beat at longer
+# horizons? Deliberately reuses sarimax_univariate's order/seasonal_order/
+# min_train_weeks/refit_every_n_weeks directly (see scripts/run_backtest.py)
+# rather than duplicating them here, so they can't drift out of sync.
+multistep:
+  horizons: [1, 2, 4, 8, 12] # weeks ahead
+  results_path: "data/processed/backtest_multistep.parquet"
+  metrics_path: "data/processed/multistep_metrics.csv"
+  significance_path: "data/processed/multistep_significance.csv"
+  chart_path: "assets/multistep_rmse_by_horizon.png"
+
 sarimax_exogenous:
   target_col: "price_nok_per_kg"
   exog_cols: ["sst_anomaly_c", "fishmeal_price_usd_per_tonne"]

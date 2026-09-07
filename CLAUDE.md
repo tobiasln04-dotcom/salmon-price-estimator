@@ -698,6 +698,75 @@ the current step calls for.
   (between "How reliable are these forecasts" and "Is this actually a
   random walk?"), heavily caveated as a notional/paper exercise, not a
   claim of real tradability.
+- **2026-09-07 (multi-step-ahead forecasting)**: Extended the univariate
+  SARIMAX - the one model that already beats naive at 1-week-ahead - to
+  longer horizons (1/2/4/8/12 weeks), asking the one question this
+  project hadn't tested yet: does naive get *harder* to beat further out,
+  since it structurally ignores trend? Scoped to SARIMAX univariate only
+  (user chose this over also extending XGBoost, which would need a
+  recursive feature-reconstruction loop for its lagged inputs - not worth
+  the added leakage-risk surface for this round). Built
+  `eval/backtest_multistep.py`: same walk-forward fit/refit/`.extend()`
+  mechanics as `eval/backtest.py`, but one `get_forecast(steps=max(horizons))`
+  call per origin returns *every* horizon from a single already-fitted
+  state, so the whole multi-horizon backtest costs about the same as the
+  existing 1-step backtest (~15-17 min), not a multiple of it. Long-format
+  output (one row per origin x horizon); naive-at-h is always `y[i-1]`
+  (repeat the last known value regardless of horizon - the correct
+  multi-step extension of "naive"). This also gave `eval/significance.py`'s
+  Diebold-Mariano test its first real use of the `h` parameter (the
+  MA(h-1)-error small-sample correction) - every prior use in this project
+  was `h=1` since everything else was one-step-ahead. Config: new
+  `multistep` block in `config/model.yaml`, deliberately reusing
+  `sarimax_univariate`'s order/seasonal_order/min_train_weeks/
+  refit_every_n_weeks rather than duplicating them, so the two can't drift
+  out of sync. Verification before writing anything down: a dedicated test
+  (`test_walk_forward_multistep_backtest_horizon_1_matches_single_step_backtest`)
+  cross-validates the new function's h=1 output against the existing
+  `walk_forward_backtest` on identical synthetic data - passed, confirming
+  the mechanics are consistent, not just superficially similar.
+  **Headline result** (`data/processed/multistep_metrics.csv` /
+  `multistep_significance.csv`, same univariate SARIMAX config, full
+  2003-2026 history):
+
+  | horizon (weeks) | SARIMAX MAPE | naive MAPE | SARIMAX RMSE | naive RMSE | dir. acc. | DM p-value | significant |
+  |---|---|---|---|---|---|---|---|
+  | 1 | 3.54% | 3.59% | 2.79 | 2.91 | 58.9% | 0.019 | yes (SARIMAX better) |
+  | 2 | 5.44% | 5.53% | 4.39 | 4.53 | 59.8% | 0.067 | no |
+  | 4 | 6.99% | 7.34% | 5.63 | 6.08 | 62.8% | 0.0024 | yes (SARIMAX better) |
+  | 8 | 9.57% | 10.77% | 7.50 | 8.59 | 66.1% | 0.0008 | yes (SARIMAX better) |
+  | 12 | 11.64% | 13.30% | 9.00 | 10.72 | 69.9% | 0.0005 | yes (SARIMAX better) |
+
+  **This is the one result in the whole project that shifts the story
+  rather than re-confirming it.** Naive's error grows faster than
+  SARIMAX's as the horizon extends (RMSE gap: 0.12 at 1 week -> 1.72 at
+  12 weeks), directional accuracy climbs from 58.9% to 69.9%, and the
+  DM test result strengthens (excluding a dip to non-significance at
+  h=2) rather than fading - the opposite of what you'd expect if the
+  1-week edge were a fragile artifact. **Why this makes sense**: naive
+  structurally ignores trend/momentum at any horizon, so its error grows
+  roughly with the trend it's missing, while SARIMAX's ARIMA(1,1,1)
+  component is explicitly built to extract exactly that momentum - a
+  thin week-to-week autocorrelation (per the random-walk test findings)
+  compounds into a much more exploitable trend-following edge over 8-12
+  weeks. **Don't read the h=2 non-significance (p=0.067) as a break in
+  the pattern** - it's a single point in an otherwise monotonic-strengthening
+  series, most plausibly sampling noise around a still-real but smaller
+  gap at that specific horizon, not evidence the multi-step story is
+  fragile. **What to tell a future session**: this project's honest
+  narrative is not "everything came up short except 1-week univariate
+  SARIMAX" - it's "the univariate SARIMAX's edge is thin at 1 week but
+  grows substantially and remains statistically significant out to at
+  least 12 weeks," which is a materially more encouraging finding and
+  should be the one led with if asked "does this actually work." README
+  updated: new "Does the edge grow at longer horizons?" section (with
+  `assets/multistep_rmse_by_horizon.png`, between the ensemble paragraph
+  and the exogenous/XGBoost discussion), the "Is this actually a random
+  walk?" section's closing paragraph softened to be 1-week-specific with
+  a cross-reference forward, and the daily-nowcast section's closing
+  "coherent finding" paragraph updated so it no longer implies every
+  extension attempt came up short (multi-step is the explicit exception).
+  Verification: full pytest suite (96 tests) passes, `ruff check .` clean.
 
 ## Deferred items
 

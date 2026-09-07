@@ -131,6 +131,53 @@ XGBoost buys anything over the simpler choice; the classic "forecast
 combination" bet (a weak model can still reduce a strong one's variance
 when averaged in) doesn't pay off on this series.
 
+## Does the edge grow at longer horizons?
+
+![Forecast accuracy by horizon](assets/multistep_rmse_by_horizon.png)
+
+Every result so far is one week ahead. Naive (repeat the last observed
+value) structurally ignores trend, so it should get *worse* as a
+benchmark the further out you forecast — this was the one open question
+in the whole project that could genuinely change the story rather than
+add another confirmation of it. Tested by extending the univariate
+SARIMAX (the one model that already won) to 2/4/8/12 weeks ahead, same
+walk-forward mechanics, scoped to this one model deliberately (XGBoost
+would need a riskier recursive feature-reconstruction loop, not worth it
+for this check).
+
+| Horizon | SARIMAX MAPE | Naive MAPE | SARIMAX RMSE | Naive RMSE | SARIMAX dir. acc. | Naive dir. acc. | Significant? (DM) |
+|---|---|---|---|---|---|---|---|
+| 1 week | 3.54% | 3.59% | 2.79 | 2.91 | 58.9% | 0.5% | yes (p = 0.019) |
+| 2 weeks | 5.44% | 5.53% | 4.39 | 4.53 | 59.8% | 0.2% | borderline (p = 0.067) |
+| 4 weeks | 6.99% | 7.34% | 5.63 | 6.08 | 62.8% | 0.2% | yes (p = 0.0024) |
+| 8 weeks | 9.57% | 10.77% | 7.50 | 8.59 | 66.1% | 0.08% | yes (p = 0.0008) |
+| 12 weeks | 11.64% | 13.30% | 9.00 | 10.72 | 69.9% | 0.08% | yes (p = 0.0005) |
+
+**This is the one result in the whole project that shifts the story
+rather than re-confirming it: SARIMAX's edge over naive doesn't stay
+thin — it widens substantially with horizon.** The MAPE gap grows from
+0.05 points at 1 week to 1.66 points at 12 weeks (a >30x increase in the
+raw gap); the RMSE gap widens from 0.12 to 1.72 over the same span. SARIMAX's
+directional accuracy climbs from 58.9% to 69.9% as the horizon lengthens,
+while naive's stays pinned near zero throughout (it structurally can
+almost never predict a move, at any horizon). Statistical significance
+holds at every horizon except a borderline dip at 2 weeks (p = 0.067,
+just short of 5%) — and from 4 weeks on, the p-values keep shrinking as
+the horizon grows, the opposite of what you'd expect if the 1-week edge
+were a fluke that fades with more uncertainty.
+
+**Why this makes sense, not just a lucky number:** naive's blind spot is
+trend — it can never anticipate a persistent multi-week drift, no matter
+how obvious, because it always just repeats the last value. That blind
+spot costs more the further out you forecast: missing a trend over 12
+weeks is a much bigger miss than missing it over 1 week. SARIMAX, through
+its differencing and AR/MA structure, captures some of that dynamic, so
+its relative advantage compounds with horizon even as its *absolute*
+error also grows (3.5% MAPE at 1 week is still better than 11.6% at 12
+weeks in absolute terms — forecasting further out is harder for both
+models). What grows is the *edge*, not the accuracy in isolation, and
+the edge is what a forecaster is actually judged against.
+
 ## Why the exogenous features and XGBoost didn't help — and what that does and doesn't mean
 
 The SARIMAX exogenous variant's shortfall was investigated in detail
@@ -313,14 +360,15 @@ coincidentally, exactly what SARIMAX(1,1,1)×(0,1,1,52) is built to
 capture: the AR/MA terms exist specifically to model autocorrelation in
 the differenced series. **That's why SARIMAX can extract a statistically
 significant edge over naive at all** (the Diebold-Mariano result above).
-But the edge is still small (3.54% vs. 3.59% MAPE) — telling you the
-autocorrelation, while real, is thin. "Close to a random walk" was the
-right intuition; "non-stationary with weak but real autocorrelation" is
-the more precise description these two tests actually support, and it's
-a better explanation for the whole project's pattern than "random walk"
-alone would be: there's a real, exploitable signal (hence SARIMAX's
-significant win), it's just too thin for more data or more model
-flexibility to meaningfully improve on.
+At the 1-week horizon the edge is thin (3.54% vs. 3.59% MAPE) — telling
+you the autocorrelation, while real, is subtle week-to-week. "Close to a
+random walk" was the right intuition; "non-stationary with weak but real
+autocorrelation" is the more precise description these two tests actually
+support. It's also consistent with the edge *widening* substantially at
+longer horizons (see "Does the edge grow at longer horizons?" below) —
+a thin week-to-week autocorrelation compounds into a much more
+exploitable trend-following advantage the further out you forecast, even
+though it's barely detectable one week at a time.
 
 ## Daily nowcast result
 
@@ -353,12 +401,15 @@ exogenous features.
 **Taken together with the weekly results above, this project's honest
 finding is a coherent one, not three unrelated disappointments**: the
 naive last-observed-value benchmark is a genuinely tough target on this
-series (non-stationary with only weak, thin autocorrelation — see "Is
-this actually a random walk?" above), and every attempt to beat it with
-more data or more model flexibility (exogenous features, XGBoost, daily
-nowcasting, even a simple SARIMAX+XGBoost ensemble) came up short against
-it. The univariate SARIMAX remains the one model in this project that
-clears the bar.
+series at the 1-week horizon (non-stationary with only weak, thin
+autocorrelation — see "Is this actually a random walk?" above), and every
+attempt to beat it with more data or more model flexibility (exogenous
+features, XGBoost, daily nowcasting, even a simple SARIMAX+XGBoost
+ensemble) came up short against it there. The univariate SARIMAX remains
+the one model in this project that clears the bar at 1 week — and, as it
+turns out, clears it by a growing margin at longer horizons too (see
+"Does the edge grow at longer horizons?" below), which is the one place
+this project's story genuinely improves rather than just holds steady.
 
 ## Side analysis: which salmon stock tracks the salmon price?
 
@@ -402,27 +453,33 @@ uv run python scripts/run_backtest.py
 
 This fetches all data sources if they're not already cached locally,
 builds the joined weekly panel/features, runs all four weekly backtest
-variants (with prediction intervals) plus the ensemble and the daily
-nowcast backtest, writes `data/processed/backtest_*.parquet`,
-`data/processed/backtest_metrics.csv`, `data/processed/significance_tests.csv`
-(the Diebold-Mariano results above), `data/processed/random_walk_tests.csv`
-(the ADF/Ljung-Box results), `data/processed/interval_coverage.csv` (the
-calibration table above), `data/processed/trading_strategy.csv` (the
-economic-value table above), and regenerates all three chart images
-under `assets/`. **A fresh run takes roughly 40 minutes** — SARIMAX refit cost
-scales superlinearly with training window size on this ~1,300-week
-series (see `config/model.yaml` and `eval/backtest.py` for the measured
-numbers and the runtime tradeoffs that shaped the default config);
-XGBoost and the nowcast layer add only a few more minutes on top since
-retraining them is cheap. Each variant's results are cached under
-`data/processed/` and skipped on subsequent runs unless deleted, so an
-interrupted run resumes rather than starting over — note that adding
-prediction intervals changed the SARIMAX result schema, so those two
-cache files needed a one-time deletion to pick up the new `lower`/`upper`
-columns.
+variants (with prediction intervals) plus the ensemble, the multi-step
+SARIMAX backtest, and the daily nowcast backtest, writes
+`data/processed/backtest_*.parquet`, `data/processed/backtest_metrics.csv`,
+`data/processed/significance_tests.csv` (the Diebold-Mariano results
+above), `data/processed/random_walk_tests.csv` (the ADF/Ljung-Box
+results), `data/processed/interval_coverage.csv` (the calibration table
+above), `data/processed/trading_strategy.csv` (the economic-value table
+above), `data/processed/backtest_multistep.parquet`,
+`data/processed/multistep_metrics.csv`, and
+`data/processed/multistep_significance.csv` (the horizon results above),
+and regenerates all four chart images under `assets/`. **A fresh run
+takes roughly 55-60 minutes** — SARIMAX refit cost scales superlinearly
+with training window size on this ~1,300-week series (see
+`config/model.yaml` and `eval/backtest.py` for the measured numbers and
+the runtime tradeoffs that shaped the default config); the multi-step
+backtest refits its own independent SARIMAX state sequence (it can't
+reuse the 1-step backtest's cached fits) so it adds another ~15-17
+minutes on top of the four-variant total; XGBoost and the nowcast layer
+add only a few more minutes since retraining them is cheap. Each
+variant's results are cached under `data/processed/` and skipped on
+subsequent runs unless deleted, so an interrupted run resumes rather
+than starting over — note that adding prediction intervals changed the
+SARIMAX result schema, so those two cache files needed a one-time
+deletion to pick up the new `lower`/`upper` columns.
 
 Unlike everything else in `data/processed/` (gitignored, regenerated on
-demand), all four PNGs under `assets/` (three from this script, plus the
+demand), all five PNGs under `assets/` (four from this script, plus the
 stock-correlation chart below) **are committed** — they're the artifacts
 this README embeds directly, so they need to actually be in the repo
 rather than regenerated-and-ignored. Re-run the relevant script and
@@ -443,6 +500,7 @@ uv run python scripts/analyze_stock_correlations.py
 - [x] SARIMAX weekly baseline (univariate + exogenous), walk-forward backtest
 - [x] XGBoost weekly baseline (autoregressive + exogenous), rolling-window backtest
 - [x] Daily nowcast layer (FX + Oslo Børs salmon stocks; futures deferred, see below)
+- [x] Multi-step-ahead SARIMAX backtest (1/2/4/8/12 weeks, univariate only)
 - [ ] Fish Pool/Euronext salmon futures (deferred — no free historical
       source, see `CLAUDE.md` "Deferred items")
 - [ ] Harvest volume / standing biomass features (deferred — needs

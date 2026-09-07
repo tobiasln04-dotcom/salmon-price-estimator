@@ -49,6 +49,7 @@ from salmon_price_estimator.data import (
 )
 from salmon_price_estimator.eval import metrics
 from salmon_price_estimator.eval.backtest import walk_forward_backtest
+from salmon_price_estimator.eval.backtest_multistep import walk_forward_multistep_backtest
 from salmon_price_estimator.eval.backtest_nowcast import walk_forward_nowcast_backtest
 from salmon_price_estimator.eval.backtest_xgboost import rolling_window_backtest
 from salmon_price_estimator.eval.ensemble import build_ensemble_predictions
@@ -144,6 +145,68 @@ def strategy_row(variant: str, df: pd.DataFrame, pred_col: str) -> dict:
     eval/trading_strategy.py."""
     strategy_df = simple_directional_strategy(df, pred_col)
     return {"variant": variant} | compute_strategy_metrics(strategy_df)
+
+
+def multistep_summary(results: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Per-horizon metrics + Diebold-Mariano significance (SARIMAX vs.
+    naive-at-h). Uses the DM test's `h` parameter for real for the first
+    time in this project - every prior use was h=1 since everything else
+    was one-step-ahead."""
+    metric_rows, significance_rows = [], []
+    for h, group in results.groupby("horizon"):
+        metric_rows.append(
+            {
+                "horizon": h,
+                "n_forecasts": len(group),
+                "sarimax_mape": metrics.mape(group["actual"], group["sarimax_pred"]),
+                "sarimax_rmse": metrics.rmse(group["actual"], group["sarimax_pred"]),
+                "sarimax_directional_accuracy": metrics.directional_accuracy(
+                    group["actual"], group["sarimax_pred"], group["naive_pred"]
+                ),
+                "naive_mape": metrics.mape(group["actual"], group["naive_pred"]),
+                "naive_rmse": metrics.rmse(group["actual"], group["naive_pred"]),
+                "naive_directional_accuracy": metrics.directional_accuracy(
+                    group["actual"], group["naive_pred"], group["naive_pred"]
+                ),
+            }
+        )
+        dm_stat, p_value = diebold_mariano_test(
+            (group["actual"] - group["sarimax_pred"]).to_numpy(),
+            (group["actual"] - group["naive_pred"]).to_numpy(),
+            h=h,
+        )
+        significance_rows.append(
+            {
+                "horizon": h,
+                "dm_statistic": dm_stat,
+                "p_value": p_value,
+                "significant_at_5pct": bool(p_value < 0.05) if not np.isnan(p_value) else False,
+            }
+        )
+    metric_df = pd.DataFrame(metric_rows).sort_values("horizon").reset_index(drop=True)
+    significance_df = pd.DataFrame(significance_rows).sort_values("horizon").reset_index(drop=True)
+    return metric_df, significance_df
+
+
+def plot_multistep_rmse_by_horizon(metric_df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(metric_df["horizon"], metric_df["sarimax_rmse"], marker="o", label="SARIMAX univariate")
+    ax.plot(
+        metric_df["horizon"],
+        metric_df["naive_rmse"],
+        marker="o",
+        linestyle="--",
+        label="Naive (last observed value)",
+    )
+    ax.set_xticks(metric_df["horizon"])
+    ax.set_xlabel("Forecast horizon (weeks ahead)")
+    ax.set_ylabel("RMSE (NOK/kg)")
+    ax.set_title("Forecast accuracy by horizon")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
 
 
 def random_walk_summary(price: pd.Series) -> pd.DataFrame:
@@ -481,6 +544,29 @@ def main() -> None:
         n_weeks=interval_cfg["fan_chart_weeks"],
         path=REPO_ROOT / interval_cfg["fan_chart_path"],
     )
+
+    # --- Multi-step-ahead: does naive get harder to beat at longer horizons? ---
+    multistep_cfg = model_config["multistep"]
+    multistep_results = compute_or_load(
+        REPO_ROOT / multistep_cfg["results_path"],
+        lambda: walk_forward_multistep_backtest(
+            week_ids=ssb["week_id"],
+            y=ssb[uni_cfg["target_col"]].to_numpy(),
+            order=tuple(uni_cfg["order"]),
+            seasonal_order=tuple(uni_cfg["seasonal_order"]),
+            min_train_weeks=uni_cfg["min_train_weeks"],
+            refit_every_n_weeks=uni_cfg["refit_every_n_weeks"],
+            horizons=multistep_cfg["horizons"],
+        ),
+    )
+    multistep_metrics, multistep_significance = multistep_summary(multistep_results)
+    print()
+    print(multistep_metrics.to_string(index=False))
+    print()
+    print(multistep_significance.to_string(index=False))
+    multistep_metrics.to_csv(REPO_ROOT / multistep_cfg["metrics_path"], index=False)
+    multistep_significance.to_csv(REPO_ROOT / multistep_cfg["significance_path"], index=False)
+    plot_multistep_rmse_by_horizon(multistep_metrics, REPO_ROOT / multistep_cfg["chart_path"])
 
     # --- Daily nowcast layer, anchored on the univariate SARIMAX forecast ---
     nowcast_cfg = model_config["nowcast"]
